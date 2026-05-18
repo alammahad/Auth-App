@@ -1,0 +1,15 @@
+fastapi==0.136.1
+uvicorn[standard]==0.46.0
+pymongo==4.17.0
+python-dotenv==1.2.2
+bcrypt==5.0.0
+PyJWT==2.12.1
+certifi==2026.4.22
+anthropic==0.102.0
+APScheduler==3.11.2
+cloudinary==1.44.2
+httpx==0.28.1
+python-multipart==0.0.28
+pydantic==2.13.4
+starlette==1.0.0
+websockets==16.0

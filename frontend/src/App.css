@@ -1,0 +1,19 @@
+.container {
+    max-width: 600px;
+    margin: 100px auto;
+    text-align: center;
+    font-family: Arial, sans-serif;
+  }
+  
+  input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 12px;
+    font-size: 16px;
+  }
+  
+  button {
+    padding: 12px 20px;
+    font-size: 16px;
+    cursor: pointer;
+  }

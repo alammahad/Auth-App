@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "react-router-dom": "^7.15.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"cd backend && py -m uvicorn app:app --reload --host 127.0.0.1 --port 8000\" \"cd frontend && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
