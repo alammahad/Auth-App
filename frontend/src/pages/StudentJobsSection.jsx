@@ -6,6 +6,7 @@ export function StudentJobsSection({ user, token, onUserRefresh }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState({});
+  const [results, setResults] = useState({});
   const [busyId, setBusyId] = useState(null);
 
   const auth = { Authorization: `Bearer ${token}` };
@@ -33,52 +34,30 @@ export function StudentJobsSection({ user, token, onUserRefresh }) {
   const uploadCvAndApply = async (jobId) => {
     setBusyId(jobId);
     setMsg((m) => ({ ...m, [jobId]: "" }));
+    setResults((r) => ({ ...r, [jobId]: null }));
     try {
-      let cvUrl = (user.cvUrl || "").trim();
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = "application/pdf,.pdf";
+      input.accept = ".pdf,.docx,.txt,.jpg,.jpeg,.png,.webp";
       const picked = await new Promise((resolve) => {
         input.onchange = () => resolve(input.files?.[0] || null);
         input.click();
       });
-      if (picked) {
-        const fd = new FormData();
-        fd.append("file", picked);
-        const up = await fetch(`${API_BASE}/upload/document?folder=cvs`, {
-          method: "POST",
-          headers: auth,
-          body: fd,
-        });
-        const upData = await up.json().catch(() => ({}));
-        if (!up.ok) throw new Error(typeof upData.detail === "string" ? upData.detail : "CV upload failed.");
-        cvUrl = upData.url;
-        await fetch(`${API_BASE}/users/${user.id}`, {
-          method: "PUT",
-          headers: { ...auth, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            profile: { cv_url: cvUrl },
-          }),
-        });
-        onUserRefresh?.();
+      if (!picked) {
+        throw new Error("Pick a CV file to apply with.");
       }
-      if (!cvUrl) {
-        throw new Error("Add a PDF résumé on your profile or pick a file when applying.");
-      }
-      const body = {
-        item_id: jobId,
-        item_type: "job_posting",
-        status: "applied",
-        cv_url: cvUrl,
-        notes: "Applied via SCHLR",
-      };
-      const r = await fetch(`${API_BASE}/applications`, {
+      const fd = new FormData();
+      fd.append("file", picked);
+      fd.append("notes", "Applied via SCHLR");
+
+      const r = await fetch(`${API_BASE}/jobs/${jobId}/apply-with-cv`, {
         method: "POST",
-        headers: { ...auth, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: auth,
+        body: fd,
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Application failed.");
+      setResults((r) => ({ ...r, [jobId]: data.cv_analysis || null }));
       setMsg((m) => ({ ...m, [jobId]: "Application submitted." }));
     } catch (e) {
       setMsg((m) => ({ ...m, [jobId]: e.message || "Error" }));
@@ -188,6 +167,35 @@ export function StudentJobsSection({ user, token, onUserRefresh }) {
                 }}
               >
                 {msg[j._id]}
+              </div>
+            )}
+            {results[j._id] && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "#F8F6F2", border: "1px solid var(--border)" }}>
+                <div style={{ fontWeight: 600, color: "var(--brown4)", marginBottom: 8 }}>CV match preview</div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                  <small style={{ color: "var(--muted)" }}>Score: {results[j._id].score}</small>
+                  <small style={{ color: "var(--muted)" }}>Status: {results[j._id].status}</small>
+                </div>
+                {results[j._id].matched_required_keywords?.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <strong>Matched required:</strong> {results[j._id].matched_required_keywords.join(", ")}
+                  </div>
+                )}
+                {results[j._id].matched_preferred_keywords?.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <strong>Matched preferred:</strong> {results[j._id].matched_preferred_keywords.join(", ")}
+                  </div>
+                )}
+                {results[j._id].missing_required_keywords?.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <strong>Missing required:</strong> {results[j._id].missing_required_keywords.join(", ")}
+                  </div>
+                )}
+                {results[j._id].issues?.length > 0 && (
+                  <div style={{ marginBottom: 0, color: "#8A2E25" }}>
+                    <strong>Issues:</strong> {results[j._id].issues.join("; ")}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -1,9 +1,10 @@
 import os
+import io
 import copy
 import asyncio
 import anthropic
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, status, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, status, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -29,6 +30,10 @@ import re
 import sys
 import uuid
 from urllib.parse import urlparse
+
+from cv_reader import extract_text_from_cv
+from cv_matcher import analyze_cv_against_job
+from cloudinary_config import upload_image as upload_to_cloudinary
 
 try:
     from backend.db import (
@@ -919,7 +924,12 @@ class JobPostingCreate(BaseModel):
     location_type: str = "Hybrid"
     location: Optional[str] = None
     apply_how: str
+    field: Optional[str] = None
     skills_keywords: List[str] = []
+    required_keywords: List[str] = []
+    preferred_keywords: List[str] = []
+    minimum_cv_score: Optional[int] = 45
+    auto_hide_irrelevant_cvs: bool = True
     deadline: Optional[datetime] = None
 
 class CommentRequest(BaseModel):
@@ -962,6 +972,9 @@ class ApplicationRequest(BaseModel):
     status: str = "saved"
     notes: Optional[str] = None
     cv_url: Optional[str] = None
+
+class ApplicationReviewRequest(BaseModel):
+    review_status: str
 
 class NotificationRequest(BaseModel):
     type: str
@@ -1246,17 +1259,11 @@ async def upload_image(
         raise HTTPException(400, "Only JPEG, PNG, WebP, or GIF images are allowed")
 
     if CLOUDINARY_CONFIGURED:
-        import cloudinary.uploader
-
-        result = cloudinary.uploader.upload(
-            content,
-            folder=f"schlr/{vf}",
-            resource_type="image",
-        )
-        url = result.get("secure_url") or result.get("url")
-        if not url:
-            raise HTTPException(500, "Upload failed")
-        return {"url": url, "storage": "cloudinary"}
+        try:
+            url = upload_to_cloudinary(content, folder=f"schlr/{vf}")
+            return {"url": url, "storage": "cloudinary"}
+        except Exception as e:
+            raise HTTPException(500, f"Upload failed: {str(e)}")
 
     # Fallback for local/dev use when Cloudinary is not configured.
     ext = allowed_types[ctype]
@@ -1360,7 +1367,12 @@ def recruiter_create_job(data: JobPostingCreate, current_user: dict = Depends(ge
         "location_type": data.location_type.strip() or "Hybrid",
         "location": (data.location or "").strip() or None,
         "apply_how": data.apply_how.strip(),
+        "field": (data.field or "").strip() or None,
         "skills_keywords": data.skills_keywords or [],
+        "required_keywords": data.required_keywords or [],
+        "preferred_keywords": data.preferred_keywords or [],
+        "minimum_cv_score": data.minimum_cv_score if data.minimum_cv_score is not None else 45,
+        "auto_hide_irrelevant_cvs": data.auto_hide_irrelevant_cvs,
         "deadline": data.deadline,
         "created_at": datetime.utcnow(),
         "updated_at": None,
@@ -1415,9 +1427,113 @@ def list_public_jobs(
     return {"items": docs, "total": total, "page": page, "limit": lim}
 
 
+@app.post("/jobs/{job_id}/apply-with-cv", status_code=201)
+async def apply_to_job_with_cv(
+    job_id: str,
+    file: UploadFile = File(...),
+    notes: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
+):
+    if not file.filename:
+        raise HTTPException(400, "A CV file is required")
+    if file.content_type:
+        content_type = file.content_type.lower()
+    else:
+        content_type = None
+
+    if current_user is None:
+        raise HTTPException(401, "Unauthorized")
+
+    applicant = r_users_col.find_one({"_id": ObjectId(current_user["sub"])})
+    if not applicant or applicant.get("user_type") != "student":
+        raise HTTPException(403, "Only student accounts can apply to recruiter job postings")
+
+    oid = _parse_object_id(job_id, "job_id")
+    job = r_job_postings_col.find_one({"_id": oid})
+    if not job:
+        raise HTTPException(404, "Job posting not found")
+    if job.get("status") != "active":
+        raise HTTPException(400, "This posting is no longer accepting applications")
+    if job.get("recruiter_id") == current_user["sub"]:
+        raise HTTPException(400, "You cannot apply to your own job posting")
+
+    existing = applications_col.find_one({"user_id": current_user["sub"], "item_id": job_id, "item_type": "job_posting"})
+    if existing:
+        raise HTTPException(409, "Application already exists for this job")
+
+    content = await file.read()
+    if len(content) > 8 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 8 MB)")
+
+    filename = os.path.basename(file.filename or "cv")
+    ext = os.path.splitext(filename)[1].lower()
+    allowed_ext = {".pdf", ".docx", ".txt", ".jpg", ".jpeg", ".png", ".webp"}
+    if ext not in allowed_ext:
+        raise HTTPException(400, "Unsupported CV file format")
+
+    safe_folder = os.path.join(LOCAL_UPLOAD_DIR, "cvs")
+    os.makedirs(safe_folder, exist_ok=True)
+    stored_filename = f"{uuid.uuid4().hex}{ext}"
+    abs_path = os.path.join(safe_folder, stored_filename)
+    with open(abs_path, "wb") as f:
+        f.write(content)
+
+    try:
+        extracted_text = extract_text_from_cv(abs_path, filename, content_type)
+    except Exception as exc:
+        raise HTTPException(400, f"CV extraction failed: {exc}")
+
+    analysis = analyze_cv_against_job(extracted_text, job)
+    minimum_score = job.get("minimum_cv_score") if isinstance(job.get("minimum_cv_score"), int) else 45
+    show_to_recruiter = analysis.get("show_to_recruiter", True)
+    if job.get("auto_hide_irrelevant_cvs", True) and analysis.get("score", 0) < minimum_score:
+        show_to_recruiter = False
+
+    review_status = "auto_shortlisted"
+    if analysis["status"] == "Needs Manual Review":
+        review_status = "needs_review"
+    elif analysis["status"] == "Irrelevant or Unusual CV":
+        review_status = "auto_hidden"
+
+    doc = {
+        "user_id": current_user["sub"],
+        "item_id": job_id,
+        "item_type": "job_posting",
+        "status": "applied",
+        "notes": notes,
+        "cv_url": f"{PUBLIC_BACKEND_URL}/uploads/cvs/{stored_filename}",
+        "cv_original_filename": filename,
+        "cv_file_type": content_type or ext,
+        "cv_extracted_text": extracted_text,
+        "cv_text_preview": extracted_text[:500],
+        "cv_analysis": analysis,
+        "cv_score": analysis.get("score", 0),
+        "cv_match_status": analysis.get("status", ""),
+        "show_to_recruiter": show_to_recruiter,
+        "review_status": review_status,
+        "applied_at": datetime.utcnow(),
+        "created_at": datetime.utcnow(),
+        "updated_at": None,
+    }
+    try:
+        result = applications_col.insert_one(doc)
+    except Exception:
+        raise HTTPException(409, "Application already exists for this job")
+
+    return {
+        "status": "created",
+        "id": str(result.inserted_id),
+        "cv_analysis": analysis,
+    }
+
+
 @app.get("/recruiter/jobs/{job_id}/applications")
 def recruiter_list_job_applications(
     job_id: str,
+    min_score: Optional[int] = None,
+    match_status: Optional[str] = None,
+    show_hidden: bool = False,
+    review_status: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     uid = current_user["sub"]
@@ -1428,11 +1544,18 @@ def recruiter_list_job_applications(
     job = r_job_postings_col.find_one({"_id": oid})
     if not job or job.get("recruiter_id") != uid:
         raise HTTPException(404, "Job not found")
-    apps = list(
-        r_applications_col.find({"item_id": job_id, "item_type": "job_posting"}).sort(
-            "created_at", DESCENDING
-        )
-    )
+
+    query = {"item_id": job_id, "item_type": "job_posting"}
+    if min_score is not None:
+        query["cv_score"] = {"$gte": min_score}
+    if match_status:
+        query["cv_match_status"] = match_status
+    if review_status:
+        query["review_status"] = review_status
+    if not show_hidden:
+        query["show_to_recruiter"] = True
+
+    apps = list(r_applications_col.find(query).sort([("cv_score", DESCENDING), ("created_at", DESCENDING)]))
     out: List[dict] = []
     for a in apps:
         a["_id"] = str(a["_id"])
@@ -1445,6 +1568,43 @@ def recruiter_list_job_applications(
             applicant["_id"] = str(applicant["_id"])
         out.append({**a, "applicant": applicant})
     return {"applications": out}
+
+
+@app.put("/recruiter/applications/{application_id}/review")
+def recruiter_review_application(
+    application_id: str,
+    data: ApplicationReviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    uid = current_user["sub"]
+    u = r_users_col.find_one({"_id": ObjectId(uid)})
+    if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
+        raise HTTPException(403, "Approved recruiter accounts only")
+
+    oid = _parse_object_id(application_id, "application_id")
+    application = r_applications_col.find_one({"_id": oid})
+    if not application:
+        raise HTTPException(404, "Application not found")
+    if application.get("item_type") != "job_posting":
+        raise HTTPException(400, "Only recruiter job applications can be reviewed")
+
+    job = r_job_postings_col.find_one({"_id": _parse_object_id(application["item_id"], "item_id")})
+    if not job or job.get("recruiter_id") != uid:
+        raise HTTPException(404, "Application not found")
+
+    allowed_statuses = {"manual_shortlisted", "manual_rejected", "needs_review"}
+    if data.review_status not in allowed_statuses:
+        raise HTTPException(400, f"Invalid review_status. Allowed: {sorted(allowed_statuses)}")
+
+    show_to_recruiter = data.review_status != "manual_rejected"
+
+    update_doc = {
+        "review_status": data.review_status,
+        "show_to_recruiter": show_to_recruiter,
+        "updated_at": datetime.utcnow(),
+    }
+    r_applications_col.update_one({"_id": oid}, {"$set": update_doc})
+    return {"status": "updated"}
 
 
 @app.get("/recruiter/dashboard")

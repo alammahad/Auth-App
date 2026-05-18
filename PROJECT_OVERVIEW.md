@@ -9,7 +9,8 @@
 - **Social feed & engagement**: posts, comments, likes, follows, saved posts.
 - **AI assistant (“chat”)**: question answering using retrieval over ingested content (RAG-style flow) and optional Claude integration; conversation history can be stored.
 - **Direct messaging** between users (DM threads via REST and WebSocket).
-- **Recruiter workflows**: job postings, recruiter dashboard, admin approval for recruiters.
+- **Smart CV matching & job applications**: students submit CVs for job postings; backend extracts text, applies rule-based scoring (keyword matching), and ML semantic similarity to rank applications; recruiters review and filter applicant CVs by match score and status.
+- **Recruiter workflows**: job postings with CV matching criteria, recruiter dashboard, admin approval for recruiters.
 - **Admin**: pending recruiter review, stats.
 
 The **FastAPI backend** (`backend/app.py`) exposes a large REST API plus WebSockets and connects to **MongoDB** (`scholar_ai` database) for persistence. The **React (Vite) frontend** talks to that API using `VITE_API_BASE` or the default `http://localhost:8000`.
@@ -26,7 +27,8 @@ The **FastAPI backend** (`backend/app.py`) exposes a large REST API plus WebSock
                                               │
                                               ▼
                                      Optional: Claude, vector store,
-                                     scrapers, Cloudinary uploads
+                                     scrapers, Cloudinary uploads,
+                                     sentence-transformers (ML CV similarity)
 ```
 
 ---
@@ -71,10 +73,11 @@ The API includes (non-exhaustive):
 | Users | profiles, follow, saved posts, search |
 | Posts / feed | CRUD posts, like, comment, save |
 | Opportunities | scholarships, internships, applications |
+| Job applications | `/jobs/public`, `/jobs/{id}/apply-with-cv`, CV extraction & ML scoring |
 | Chat | `/chat`, `/chat/history` |
 | News / guides | `/news`, `/guides/degree-attestation` |
 | Matches | `/recommendations/matches` |
-| Recruiter | jobs CRUD, `/recruiter/dashboard` |
+| Recruiter | jobs CRUD with CV match criteria, `/recruiter/jobs/{id}/applications`, `/recruiter/applications/{id}/review`, `/recruiter/dashboard` |
 | Admin | pending recruiters, approve/reject, stats |
 | Messaging | DM threads/messages, `WebSocket /ws/{user_id}` |
 | Ops | `/health`, scrape endpoints, image upload |
@@ -112,6 +115,13 @@ Schedulers and scrapers can refresh content depending on environment flags.
     - pydantic==2.13.4
     - starlette==1.0.0
     - websockets==16.0
+    - pypdf==3.20.0
+    - python-docx==0.8.11
+    - pytesseract==0.3.12
+    - Pillow==10.0.0
+    - pdf2image==1.16.3
+    - sentence-transformers==2.4.2 (ML semantic similarity for CV matching)
+    - scikit-learn==1.3.3 (cosine similarity computation)
 
 Installation (backend):
 
@@ -127,14 +137,40 @@ Notes:
 
 ## Recent updates
 
+- **Smart CV matching & ML scoring (NEW)**: 
+  - Added `/jobs/{job_id}/apply-with-cv` endpoint for students to upload CVs per job posting.
+  - Backend extracts text from PDF, DOCX, TXT, and image files (with OCR fallback).
+  - CV scoring combines rule-based matching (keyword/field detection, required/preferred criteria) at 60% weight with ML semantic similarity (using `sentence-transformers` all-MiniLM-L6-v2) at 40% weight.
+  - Recruiters can specify **required keywords**, **preferred keywords**, **field**, **minimum CV score**, and **auto-hide irrelevant CVs** when creating job postings.
+  - Recruiter applicant list shows CV scores, match status, and keyword matches; supports filtering by score and review status.
+  - Recruiters can manually shortlist, request review, or reject CVs via `/recruiter/applications/{id}/review` endpoint.
+  - Frontend displays CV analysis preview to students after applying and to recruiters in applicant detail.
 - Backend now falls back to the primary write collections when a read-only replica is not configured, so auth and user-related routes work consistently in local/dev environments.
 - Recruiters now have a dedicated **Messages** tab in the dashboard, and DM threads support send/receive for both students and recruiters via REST + WebSocket.
 - Student CV upload is improved so profile CVs and per-application CV submission work together, and recruiters can review submitted applicant CVs from the job posting applicant list.
 - Built-in admin credentials are aligned to the current project test credential set: `admin@sclr.com` / `Admin123!`.
 
+## CV Matching Architecture
+
+**Flow:**
+1. Student uploads CV file to job posting via `/jobs/{job_id}/apply-with-cv`.
+2. Backend extracts text using `cv_reader.py` (supports PDF, DOCX, TXT, images).
+3. `cv_matcher.py` analyzes CV against job posting:
+   - **Rule-based score** (60%): keyword matching, field aliases, required/preferred/skills detection.
+   - **ML similarity score** (40%): embeddings via `SentenceTransformer("all-MiniLM-L6-v2")`; cosine similarity between CV and job description.
+   - **Final score**: weighted combination (0–100).
+4. Application is stored with scores; hidden if below recruiter's `minimum_cv_score` and `auto_hide_irrelevant_cvs` is enabled.
+5. Recruiter views applicants, can filter by score and review status, and manually adjust application status.
+
+**Scores & status:**
+- `score` / `final_score`: 0–100 (combined rule + ML).
+- `status`: "Relevant CV" (≥70), "Needs Manual Review" (≥45 and <70), "Irrelevant or Unusual CV" (<45).
+- `review_status`: auto_shortlisted, needs_review, auto_hidden, manual_shortlisted, manual_rejected.
+
 ## Summary
 
-- **Project purpose**: Scholarship/community platform with profiles, feed, opportunities, AI chat, DMs, recruiter and admin flows — backed by **FastAPI + MongoDB** and a **React** client.
+- **Project purpose**: Scholarship/community platform with profiles, feed, opportunities, AI chat, DMs, smart CV matching, recruiter and admin flows — backed by **FastAPI + MongoDB** and a **React** client.
+- **CV matching**: Students apply with CVs; backend extracts text, computes rule-based + ML scores, ranks applications; recruiters filter and review.
 - **Are all pages “attached” to the right place?** **Not completely.** Auth and landing are wired; the **post-login experience does not yet compose** the section pages into one navigable dashboard, and **React Router is not fully integrated** with `main.jsx`. Completing that wiring (e.g. a real dashboard layout + tabs or `react-router` routes) would attach those pages as intended.
 
 ---

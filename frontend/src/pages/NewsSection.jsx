@@ -186,7 +186,7 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
       let cvUrl = (user.cvUrl || "").trim();
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = "application/pdf,.pdf";
+      input.accept = ".pdf,.docx,.txt,.jpg,.jpeg,.png,.webp";
       const picked = await new Promise((resolve) => {
         input.onchange = () => resolve(input.files?.[0] || null);
         input.click();
@@ -194,22 +194,18 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
       if (picked) {
         const fd = new FormData();
         fd.append("file", picked);
-        const up = await fetch(`${API_BASE}/upload/document?folder=cvs`, {
+        fd.append("notes", "Applied via Community");
+        const r = await fetch(`${API_BASE}/jobs/${jobPostingId}/apply-with-cv`, {
           method: "POST",
           headers: auth,
           body: fd,
         });
-        const upData = await up.json().catch(() => ({}));
-        if (!up.ok) throw new Error(typeof upData.detail === "string" ? upData.detail : "CV upload failed.");
-        cvUrl = upData.url;
-        await fetch(`${API_BASE}/users/${user.id}`, {
-          method: "PUT",
-          headers: { ...auth, "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: { cv_url: cvUrl } }),
-        });
-        onUserRefresh?.();
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Application failed.");
+        setApplyMsg((m) => ({ ...m, [jobPostingId]: "Application submitted." }));
+        return;
       }
-      if (!cvUrl) throw new Error("Add a PDF résumé on your profile or choose a file when applying.");
+      if (!cvUrl) throw new Error("Add a résumé on your profile or choose a file when applying.");
 
       const r = await fetch(`${API_BASE}/applications`, {
         method: "POST",
