@@ -175,7 +175,7 @@ def analyze_cv_against_job(cv_text: str, job: dict) -> Dict:
         + required_keywords
         + preferred_keywords
     ).strip()
-    ml_similarity_score = round(_compute_ml_similarity(text, job_text) * 100)
+    ml_similarity_score = round(min(_compute_ml_similarity(text, job_text), 1.0) * 100)
     if job_text:
         final_score = round(score * 0.6 + ml_similarity_score * 0.4)
     else:

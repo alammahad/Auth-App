@@ -11,6 +11,7 @@ export const mapMeToUser = (doc) => {
     workEmail: profile.work_email ?? "",
     handle: doc.handle || "",
     avatar: doc.avatar ?? null,
+    banner: doc.banner ?? null,
     bio: doc.bio ?? "",
     userType: doc.user_type || "student",
     status: doc.status,
@@ -87,6 +88,7 @@ export const toFrontendPost = (post = {}, currentUserId = "") => {
   const commentList = comments.map((c) => ({
     u: c.user_name || c.u || "Member",
     t: c.text || c.t || "",
+    userId: c.user_id || c.userId || "",
   }));
 
   return {

@@ -1,178 +1,130 @@
-# SCHLR / ScholarAI — Project overview
+# SCHLR / ScholarAI — Project Overview
 
 ## Purpose
 
-**SCHLR** (“ScholarAI”) is a web platform aimed at **students and recruiters** in a scholarship-oriented community. It is meant to help users:
+**SCHLR** (“ScholarAI”) is a web platform aimed at **students, recruiters, and administrators** in a scholarship-oriented community. It is designed to help users:
 
-- **Discover scholarships and internships** (including scraped or curated listings stored in the backend).
-- **Build profiles** (students and recruiters) and **match** users to opportunities or each other.
-- **Social feed & engagement**: posts, comments, likes, follows, saved posts.
-- **AI assistant (“chat”)**: question answering using retrieval over ingested content (RAG-style flow) and optional Claude integration; conversation history can be stored.
-- **Direct messaging** between users (DM threads via REST and WebSocket).
-- **Smart CV matching & job applications**: students submit CVs for job postings; backend extracts text, applies rule-based scoring (keyword matching), and ML semantic similarity to rank applications; recruiters review and filter applicant CVs by match score and status.
-- **Recruiter workflows**: job postings with CV matching criteria, recruiter dashboard, admin approval for recruiters.
-- **Admin**: pending recruiter review, stats.
+- **Discover Scholarships & Internships**: Scraped and curated listings stored and queried dynamically from MongoDB.
+- **Build Profiles**: Detailed student and recruiter profiles with target countries, majors, and hiring focuses.
+- **Social Feed & Engagement**: Create, like, comment, and save community posts.
+- **AI assistant (“Chat”)**: Semantic RAG-style query answering using opportunities and knowledge embeddings.
+- **Real-Time Direct Messaging**: REST endpoints and WebSockets for real-time text chat between members.
+- **Smart CV Matching**: Automated matching of student CVs (PDF, Word, Images) against recruiter requirements using rule-based scoring (60%) and Sentence-Transformers ML semantic embeddings (40%).
+- **Recruiter Workflows**: Centralized postings creation, dashboard overview, and CV category filters.
+- **Admin Dashboards**: Recruiter approvals, registration audits, and analytical insights.
 
-The **FastAPI backend** (`backend/app.py`) exposes a large REST API plus WebSockets and connects to **MongoDB** (`scholar_ai` database) for persistence. The **React (Vite) frontend** talks to that API using `VITE_API_BASE` or the default `http://localhost:8000`.
+The platform is powered by a **FastAPI backend** (`backend/app.py`) connecting to a **MongoDB database** (`scholar_ai`) and a **React (Vite) frontend** client (`frontend/src/App.jsx`).
 
 ---
 
-## High-level architecture
+## High-Level Architecture
 
 ```
 ┌─────────────────┐     HTTP / WS      ┌──────────────────┐      MongoDB       ┌────────────┐
-│  React (Vite) │ ◄────────────────► │  FastAPI (8000)  │ ◄───────────────► │ scholar_ai │
-│  frontend/src │   Bearer JWT        │  backend/app.py  │   PyMongo         │ Atlas / DB │
+│  React (Vite)   │ ◄────────────────► │  FastAPI (8000)  │ ◄───────────────► │ scholar_ai │
+│  frontend/src   │   Bearer JWT        │  backend/app.py  │   PyMongo         │ Atlas / DB │
 └─────────────────┘                    └──────────────────┘                   └────────────┘
                                               │
                                               ▼
-                                     Optional: Claude, vector store,
-                                     scrapers, Cloudinary uploads,
-                                     sentence-transformers (ML CV similarity)
+                                     ChromaDB (Vector RAG), Scrapers, 
+                                     Sentence-Transformers (ML Matcher)
 ```
 
 ---
 
-## What the frontend does today (routing)
+## Frontend Layout & Shell Routing
 
-**Entry:** `frontend/src/main.jsx` renders `<App />` only — there is **no** `BrowserRouter` wrapper.
+### Component Flow (`App.jsx`)
+1. **Bootstrap / Session Init**: The app boots and verifies the JWT token. While loading, the page displays a custom fullscreen large **Gooey Loader**.
+2. **Landing Page**: Shown to unauthenticated visitors (option to choose Sign In or Sign Up).
+3. **Auth Page**: Renders signup and login forms, verifying credentials against `/auth/signup` and `/auth/login`.
+4. **Dashboard**: The shell once logged in, providing customized, tabbed navigation according to user roles.
 
-**`App.jsx` flow:**
+### Tab Navigation Mapping
+The dashboard shell dynamically resolves menus and tab components for each user role:
 
-1. If no logged-in user and view is “landing” → **`LandingPage`**
-2. If no user (after choosing auth) → **`AuthPage`** (login/signup; calls `/auth/login`, `/auth/signup`, stores JWT)
-3. If user is logged in → **`Dashboard`** (with `user`, `token`, `onLogout`, `onUserRefresh`)
+- **Student Dashboard Tabs**:
+  - `Feed`: Community posts, comments, likes, and saved posts.
+  - `Jobs & Apply`: Search internships/scholarships and upload CVs for applications.
+  - `Matches`: View personalized opportunity recommendations matching student profile fields.
+  - `AI Chat`: Retrieve help and scholarship advice via the AI chatbot.
+  - `Guides`: Ingest guides for degree attestation and foreign studies.
+  - `Messages`: Interactive direct message list.
+  - `Profile`: Display details, default CV upload, post history, and account self-deletion options.
+  
+- **Recruiter Dashboard Tabs**:
+  - `Overview`: Key recruiting metrics (active postings, total applicants, shortlisted/new applicants count).
+  - `Community`: Engage in the social feed as a recruiter.
+  - `Post Roles`: Create and edit job postings with specific match criteria (keywords, fields, scores).
+  - `Applicants`: Expand active roles to review and filter applicants by match category and shortlist status.
+  - `Messages`: Direct messaging pane to contact students.
+  - `Profile`: Manage personal recruiter details and company fields.
 
-So the **only** screens currently mounted by the app are: **Landing → Auth → Dashboard**.
-
-### Important: feature pages vs. the shell
-
-The repo contains many **section components** under `frontend/src/pages/` (for example `ChatSection`, `ProfileSection`, `NewsSection`, `MessagingSection`, `MatchesSection`, `GuidesSection`, `AdminSection`, `AdminDashboard`, recruiter panes, etc.). These are built to call the backend APIs.
-
-However, **`Dashboard.jsx` does not import or render those sections.** As checked in the codebase, nothing imports `ChatSection`, `ProfileSection`, `NewsSection`, etc. — only `LandingPage`, `AuthPage`, and `Dashboard` are imported from `App.jsx`.
-
-So:
-
-- **Backend ↔ API contracts**: Many routes exist and match what those section components would call.
-- **Frontend ↔ “every page attached”**: **Not yet.** After login, users do not automatically get a tabbed shell that mounts Chat, Profile, News, DMs, etc. Those components are **present but orphaned** until a parent layout imports them and switches views.
-
-### Router leftovers
-
-- **`Signup.jsx`** uses `react-router-dom` (`Link`, `useNavigate`) but **`Signup` is not used** in `App.jsx`, and **`main.jsx` has no router** — so that file is unused / inconsistent with the current flow (auth is handled in **`AuthPage`**).
-- **`Dashboard.jsx`** includes `<Link to="/login">` / `/signup`, which expect a router and routes that are **not** defined in `main.jsx`.
-
----
-
-## Backend capabilities (summary)
-
-The API includes (non-exhaustive):
-
-| Area | Examples |
-|------|-----------|
-| Auth | `/auth/signup`, `/auth/login`, `/auth/me` |
-| Users | profiles, follow, saved posts, search |
-| Posts / feed | CRUD posts, like, comment, save |
-| Opportunities | scholarships, internships, applications |
-| Job applications | `/jobs/public`, `/jobs/{id}/apply-with-cv`, CV extraction & ML scoring |
-| Chat | `/chat`, `/chat/history` |
-| News / guides | `/news`, `/guides/degree-attestation` |
-| Matches | `/recommendations/matches` |
-| Recruiter | jobs CRUD with CV match criteria, `/recruiter/jobs/{id}/applications`, `/recruiter/applications/{id}/review`, `/recruiter/dashboard` |
-| Admin | pending recruiters, approve/reject, stats |
-| Messaging | DM threads/messages, `WebSocket /ws/{user_id}` |
-| Ops | `/health`, scrape endpoints, image upload |
-
-Schedulers and scrapers can refresh content depending on environment flags.
+- **Admin Dashboard Tabs**:
+  - `Approvals`: Audit and approve/reject pending recruiter account registrations.
+  - `Insights`: Statistical overviews of users, students, and recruiters.
+  - `Profile`: Manage admin settings.
 
 ---
 
-## Configuration essentials
+## Backend Capabilities
 
-| Piece | Role |
-|-------|------|
-| `backend/.env` | `MONGO_URI`, `MONGO_URI_READ`, JWT secrets, optional Claude/Cloudinary/scraper toggles |
-| `frontend` | `VITE_API_BASE` if the API is not on `http://localhost:8000` |
-| CORS | `ALLOWED_ORIGINS` in backend (defaults include local Vite ports) |
-
----
-
-## Requirements (runtime)
-
-- Python: 3.11.x (tested with 3.11.4)
-- Backend pinned dependencies: see `backend/requirements.txt` (examples used in this environment):
-    - fastapi==0.136.1
-    - uvicorn[standard]==0.46.0
-    - pymongo==4.17.0
-    - python-dotenv==1.2.2
-    - bcrypt==5.0.0
-    - PyJWT==2.12.1
-    - certifi==2026.4.22
-    - anthropic==0.102.0
-    - APScheduler==3.11.2
-    - cloudinary==1.44.2
-    - httpx==0.28.1
-    - python-multipart==0.0.28
-    - pydantic==2.13.4
-    - starlette==1.0.0
-    - websockets==16.0
-    - pypdf==3.20.0
-    - python-docx==0.8.11
-    - pytesseract==0.3.12
-    - Pillow==10.0.0
-    - pdf2image==1.16.3
-    - sentence-transformers==2.4.2 (ML semantic similarity for CV matching)
-    - scikit-learn==1.3.3 (cosine similarity computation)
-
-Installation (backend):
-
-```bash
-cd backend
-python -m pip install -r requirements.txt
-```
-
-Notes:
-- `backend/.env` must contain `MONGO_URI` (and other optional keys) before running the server.
-- If you encounter `anthropic` version constraints in other environments, pin to a specific installed version instead of `>=1.0.0`.
-
-
-## Recent updates
-
-- **Smart CV matching & ML scoring (NEW)**: 
-  - Added `/jobs/{job_id}/apply-with-cv` endpoint for students to upload CVs per job posting.
-  - Backend extracts text from PDF, DOCX, TXT, and image files (with OCR fallback).
-  - CV scoring combines rule-based matching (keyword/field detection, required/preferred criteria) at 60% weight with ML semantic similarity (using `sentence-transformers` all-MiniLM-L6-v2) at 40% weight.
-  - Recruiters can specify **required keywords**, **preferred keywords**, **field**, **minimum CV score**, and **auto-hide irrelevant CVs** when creating job postings.
-  - Recruiter applicant list shows CV scores, match status, and keyword matches; supports filtering by score and review status.
-  - Recruiters can manually shortlist, request review, or reject CVs via `/recruiter/applications/{id}/review` endpoint.
-  - Frontend displays CV analysis preview to students after applying and to recruiters in applicant detail.
-- Backend now falls back to the primary write collections when a read-only replica is not configured, so auth and user-related routes work consistently in local/dev environments.
-- Recruiters now have a dedicated **Messages** tab in the dashboard, and DM threads support send/receive for both students and recruiters via REST + WebSocket.
-- Student CV upload is improved so profile CVs and per-application CV submission work together, and recruiters can review submitted applicant CVs from the job posting applicant list.
-- Built-in admin credentials are aligned to the current project test credential set: `admin@sclr.com` / `Admin123!`.
-
-## CV Matching Architecture
-
-**Flow:**
-1. Student uploads CV file to job posting via `/jobs/{job_id}/apply-with-cv`.
-2. Backend extracts text using `cv_reader.py` (supports PDF, DOCX, TXT, images).
-3. `cv_matcher.py` analyzes CV against job posting:
-   - **Rule-based score** (60%): keyword matching, field aliases, required/preferred/skills detection.
-   - **ML similarity score** (40%): embeddings via `SentenceTransformer("all-MiniLM-L6-v2")`; cosine similarity between CV and job description.
-   - **Final score**: weighted combination (0–100).
-4. Application is stored with scores; hidden if below recruiter's `minimum_cv_score` and `auto_hide_irrelevant_cvs` is enabled.
-5. Recruiter views applicants, can filter by score and review status, and manually adjust application status.
-
-**Scores & status:**
-- `score` / `final_score`: 0–100 (combined rule + ML).
-- `status`: "Relevant CV" (≥70), "Needs Manual Review" (≥45 and <70), "Irrelevant or Unusual CV" (<45).
-- `review_status`: auto_shortlisted, needs_review, auto_hidden, manual_shortlisted, manual_rejected.
-
-## Summary
-
-- **Project purpose**: Scholarship/community platform with profiles, feed, opportunities, AI chat, DMs, smart CV matching, recruiter and admin flows — backed by **FastAPI + MongoDB** and a **React** client.
-- **CV matching**: Students apply with CVs; backend extracts text, computes rule-based + ML scores, ranks applications; recruiters filter and review.
-- **Are all pages “attached” to the right place?** **Not completely.** Auth and landing are wired; the **post-login experience does not yet compose** the section pages into one navigable dashboard, and **React Router is not fully integrated** with `main.jsx`. Completing that wiring (e.g. a real dashboard layout + tabs or `react-router` routes) would attach those pages as intended.
+| Category | Description & Endpoints |
+|---|---|
+| **Auth** | `/auth/signup`, `/auth/login`, `/auth/me` (JWT session management) |
+| **Users** | Profile edits, follow/unfollow, member search, saved posts tracking |
+| **Posts** | Community posts CRUD, liking, commenting, dynamic feeds |
+| **Opportunities** | Scholarship and internship listing, bookmarking |
+| **CV Matcher** | Text extraction via `cv_reader.py` (OCR fallback for images). Text comparison via `cv_matcher.py` (Rule-based keywords [60%] + Sentence-Transformers embeddings [40%]) |
+| **Recruiter API** | Job creation, applicant reviews, and dashboard metrics `/recruiter/dashboard` |
+| **Admin API** | Pending recruiter audits, registration decisions, platform statistics |
+| **DMs** | DM threads CRUD, WebSocket `/ws/{user_id}` connection with ref-based manager preventing reconnection loops |
+| **Ops** | `/health` checks, RSS/AI scrapers, Cloudinary uploads, fallback DNS configuration (`8.8.8.8`/`1.1.1.1`) to resolve database resolution timeouts |
 
 ---
 
-*Generated from the repository structure and imports as of the documentation date.*
+## Premium UI/UX Features
+
+1. **Gooey Morph Loader (Daily UI #076)**:
+   A liquid, morphing loader using an SVG Gaussian Blur + Color Matrix filter to merge orbiting dots fluidly. Used in place of all loading text and spinners across all views with scale scaling (`sm`/`md`/`lg`).
+2. **Seen Receipts (Eye Icon)**:
+   Read receipts for messages you sent using a blue SVG eye icon next to the timestamp for `read === true` messages.
+3. **Smooth Messaging Pane Layout & Connection Manager**:
+   - **Message Grouping**: Closely bundles messages from the same sender within 2 minutes and hides redundant peer profile avatars.
+   - **Adaptive Bubble Rounding**: Bubbles round differently based on their position in a group (top, middle, bottom, single).
+   - **Centered Date Dividers**: Centered blur-backed pills separating days (e.g. "Today", "Yesterday").
+   - **Bouncing Dots Typing Indicator**: Clean bubble containing three pulsing bouncing dots inside the scroll container.
+   - **Hover Delete Controls**: Deletion buttons (`🗑`) fade in only when a message bubble container is hovered.
+   - **Resilient Connection Manager**: Relies on a stable React Ref (`wsRef`) and connection-tracking flags (`wsRef.current === newWs`) to completely eliminate the infinite WebSocket reconnect loops on layout updates and user logouts.
+4. **Light / Dark Blue Theme**:
+   A white, glassmorphic layout accented with soft sky-blue borders, gradients, and light/dark theme toggle support.
+5. **Interactive Dropdowns & Match Filters**:
+   - **Recruiter Applicant filtering**: Categorizes student applications as **Best** (Score $\ge$ 70), **Medium** (Score 45–69), and **Below** (Score $<$ 45) with custom colored status badges.
+   - **Student Matches filtering**: Custom, glassmorphic multi-select checkboxes for Country and Degree Level. Pre-populated by default with the student's profile values, featuring a search-filter input for countries, 16px curved dropdown panels, and smooth text-translation animations (`translateX(4px)`) on option hover.
+6. **Smooth Guides Accordion Animations**:
+   Collapsible panels in the HEC Attestation/Foreign Guides section utilizing modern CSS grid-template-rows height transitions and smoothly rotating chevron icons (`▼`) when clicked.
+7. **Modern SVG Vector Icons**:
+   All legacy text emojis in navigation pills, settings drop-downs, and landing page capability panels have been replaced with customized, theme-responsive SVG line-art icons that dynamically adapt to active colors (`currentColor`).
+8. **High-Fidelity Hover Micro-Animations**:
+   Hovering over any navigation icon or card triggers sleek, Dribbble-inspired animations (e.g., rotating gear, sliding logout exit arrow, pulsing bullseye target, bouncing briefcase handle, typing message dots, and self-drawing verification shield checkmark).
+9. **Password Toggle Visibility**:
+   Settings credential forms feature absolute-positioned SVG eye icons to toggle between password masking and plain text dynamically, including automatic safety resets.
+10. **Landing Page Instagram Link**:
+    The landing page footer integrates an animated `<InstagramIcon />` linked directly to `https://www.instagram.com/alam_mahad`. Hovering over the link scales and rotates the icon playfully while shifting its color to the brand pink `#E1306C`.
+11. **Blur-Filtered Logout Modal**:
+    A glassmorphic overlay with screen-blur filters (`backdrop-filter: blur(8px)`) and cubic-bezier scale zooming overlays confirmation questions before terminating sessions to prevent accidental logouts.
+
+---
+
+## Requirements & Configuration
+
+- **Python**: 3.11.x (or compatible)
+- **Node.js**: 18+ (tested with Vite 8.0.x)
+- **Database**: MongoDB Atlas or local MongoDB instance
+- **Environment Settings**:
+  - `backend/.env`: `MONGO_URI`, `MONGO_URI_READ`, JWT secret key, and optional Claude/Cloudinary tokens.
+  - `frontend/.env` (optional): `VITE_API_BASE` (defaults to `http://localhost:8000`).
+
+---
+
+*Verified functional and compiled on: 2026-06-12*

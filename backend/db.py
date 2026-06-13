@@ -1,7 +1,16 @@
 import os
 import certifi
+import dns.resolver
 from dotenv import load_dotenv
 from pymongo import MongoClient
+
+# Configure custom nameservers to avoid local router SRV resolution timeouts
+try:
+    resolver = dns.resolver.Resolver()
+    resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    dns.resolver.default_resolver = resolver
+except Exception as e:
+    print(f"Warning: Failed to configure custom DNS resolvers: {e}")
 
 # Load .env from backend directory
 import pathlib
@@ -24,7 +33,10 @@ class MongoDBConnection:
     def get_rw_client(cls):
         if cls._rw_client is None:
             try:
-                cls._rw_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000, connectTimeoutMS=5000, retryWrites=False)
+                kwargs = {"serverSelectionTimeoutMS": 30000, "connectTimeoutMS": 30000, "retryWrites": False}
+                if MONGO_URI and "mongodb+srv" in MONGO_URI:
+                    kwargs["tlsCAFile"] = certifi.where()
+                cls._rw_client = MongoClient(MONGO_URI, **kwargs)
                 # Test connection
                 cls._rw_client.admin.command('ping')
             except Exception as e:
@@ -37,7 +49,10 @@ class MongoDBConnection:
     def get_ro_client(cls):
         if cls._ro_client is None:
             try:
-                cls._ro_client = MongoClient(MONGO_URI_READ, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000, connectTimeoutMS=5000, retryWrites=False)
+                kwargs = {"serverSelectionTimeoutMS": 30000, "connectTimeoutMS": 30000, "retryWrites": False}
+                if MONGO_URI_READ and "mongodb+srv" in MONGO_URI_READ:
+                    kwargs["tlsCAFile"] = certifi.where()
+                cls._ro_client = MongoClient(MONGO_URI_READ, **kwargs)
                 # Test connection
                 cls._ro_client.admin.command('ping')
             except Exception as e:
@@ -67,11 +82,14 @@ if mongo_db is not None:
     scholarships_col = mongo_db["scholarships"]
     internships_col = mongo_db["internships"]
     applications_col = mongo_db["applications"]
+    connections_col = mongo_db["connections"]
     notifications_col = mongo_db["notifications"]
     job_postings_col = mongo_db["job_postings"]
+    news_col = mongo_db["news_articles"]
 else:
     users_col = posts_col = messages_col = conversations_col = dm_messages_col = dm_threads_col = None
-    scholarships_col = internships_col = applications_col = notifications_col = job_postings_col = None
+    scholarships_col = internships_col = applications_col = connections_col = notifications_col = job_postings_col = None
+    news_col = None
 
 if mongo_db_read is not None:
     r_users_col = mongo_db_read["users"]
@@ -82,11 +100,14 @@ if mongo_db_read is not None:
     r_scholarships_col = mongo_db_read["scholarships"]
     r_internships_col = mongo_db_read["internships"]
     r_applications_col = mongo_db_read["applications"]
+    r_connections_col = mongo_db_read["connections"]
     r_notifications_col = mongo_db_read["notifications"]
     r_job_postings_col = mongo_db_read["job_postings"]
+    r_news_col = mongo_db_read["news_articles"]
 else:
     r_users_col = r_posts_col = r_messages_col = r_dm_messages_col = r_dm_threads_col = None
-    r_scholarships_col = r_internships_col = r_applications_col = r_notifications_col = r_job_postings_col = None
+    r_scholarships_col = r_internships_col = r_applications_col = r_connections_col = r_notifications_col = r_job_postings_col = None
+    r_news_col = None
 
 
 # When a read-only replica is not configured, fall back to the primary write collections.
@@ -106,10 +127,14 @@ if r_internships_col is None:
     r_internships_col = internships_col
 if r_applications_col is None:
     r_applications_col = applications_col
+if r_connections_col is None:
+    r_connections_col = connections_col
 if r_notifications_col is None:
     r_notifications_col = notifications_col
 if r_job_postings_col is None:
     r_job_postings_col = job_postings_col
+if r_news_col is None:
+    r_news_col = news_col
 
 
 def serialize_doc(doc: dict | None) -> dict | None:

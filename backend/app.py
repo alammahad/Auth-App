@@ -13,12 +13,14 @@ from typing import List, Dict, Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pymongo import ASCENDING, DESCENDING
-from pymongo.errors import CollectionInvalid, OperationFailure
+from pymongo.errors import CollectionInvalid, DuplicateKeyError, OperationFailure
 from datetime import datetime, timedelta
 
 # ✅ Local imports
 from scraper import WebScraper
 from vector_store import VectorStore
+from chroma_store import ChromaStore
+from news_scraper import run_news_scrape as _run_news_scrape_feeds, cleanup_old_news as _cleanup_old_news
 
 from dotenv import load_dotenv
 from bson import ObjectId
@@ -36,7 +38,7 @@ from cv_matcher import analyze_cv_against_job
 from cloudinary_config import upload_image as upload_to_cloudinary
 
 try:
-    from backend.db import (
+    from db import (
         mongo_db,
         mongo_db_read,
         users_col,
@@ -48,8 +50,10 @@ try:
         scholarships_col,
         internships_col,
         applications_col,
+        connections_col,
         notifications_col,
         job_postings_col,
+        news_col,
         r_users_col,
         r_posts_col,
         r_messages_col,
@@ -60,6 +64,7 @@ try:
         r_applications_col,
         r_notifications_col,
         r_job_postings_col,
+        r_news_col,
     )
 except ImportError:
     from db import (
@@ -74,8 +79,10 @@ except ImportError:
         scholarships_col,
         internships_col,
         applications_col,
+        connections_col,
         notifications_col,
         job_postings_col,
+        news_col,
         r_users_col,
         r_posts_col,
         r_messages_col,
@@ -84,8 +91,10 @@ except ImportError:
         r_scholarships_col,
         r_internships_col,
         r_applications_col,
+        r_connections_col,
         r_notifications_col,
         r_job_postings_col,
+        r_news_col,
     )
 
 load_dotenv()
@@ -300,20 +309,33 @@ def get_super_admin_user() -> dict:
 def get_user_by_token(current_user: dict) -> dict:
     if current_user["sub"] == SUPER_ADMIN_ID:
         return get_super_admin_user()
-    return r_users_col.find_one({"_id": ObjectId(current_user["sub"])})
+    return r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
 
 from opportunity_scraper import persist_opportunities_from_chunks
 def _ensure_collection(name: str, validator: dict) -> None:
     try:
         mongo_db.create_collection(name, validator=validator)
     except CollectionInvalid:
-        pass
+        try:
+            mongo_db.command(
+                {
+                    "collMod": name,
+                    "validator": validator,
+                    "validationLevel": "moderate",
+                }
+            )
+        except OperationFailure:
+            # Existing collections may not allow validator modification on some MongoDB tiers.
+            pass
     except OperationFailure:
         # Atlas shared tiers may restrict collMod/create validators; continue safely.
         pass
 
 
 def init_database_schema() -> None:
+    if mongo_db is None:
+        print("Warning: Skipping database schema initialization because MongoDB connection is None")
+        return
     _ensure_collection(
         "users",
         {
@@ -327,6 +349,7 @@ def init_database_schema() -> None:
                     "user_type": {"enum": ["student", "recruiter", "super_admin"]},
                     "handle": {"bsonType": ["string", "null"]},
                     "avatar": {"bsonType": ["string", "null"]},
+                    "banner": {"bsonType": ["string", "null"]},
                     "bio": {"bsonType": ["string", "null"]},
                     "profile": {"bsonType": ["object", "null"]},
                     "followers": {"bsonType": "array"},
@@ -450,6 +473,9 @@ def init_database_schema() -> None:
                     "scraped_at": {"bsonType": "date"},
                     "created_at": {"bsonType": "date"},
                     "updated_at": {"bsonType": ["date", "null"]},
+                    "source_name": {"bsonType": "string"},
+                    "degree_level": {"bsonType": "string"},
+                    "funding_type": {"bsonType": "string"},
                 },
             }
         },
@@ -552,6 +578,11 @@ def init_database_schema() -> None:
 
     job_postings_col.create_index([("recruiter_id", ASCENDING), ("created_at", DESCENDING)])
 
+    if news_col is not None:
+        news_col.create_index([("published_at", DESCENDING)])
+        news_col.create_index([("url_hash", ASCENDING)], unique=True, sparse=True)
+        news_col.create_index([("tag", ASCENDING), ("published_at", DESCENDING)])
+
 # ═══════════════════════════════════════════════════════
 # ANTHROPIC / RAG CONFIG
 # ═══════════════════════════════════════════════════════
@@ -564,20 +595,85 @@ if not ANTHROPIC_API_KEY:
 CLAUDE_MODEL = "claude-sonnet-4-5-20251001"
 
 URLS_TO_SCRAPE: List[str] = [
-    "https://scholarshiproar.com/",
+    "https://www.hec.gov.pk/site/scholarships",
+    "https://www.hec.gov.pk/english/scholarshipsgrants/Pages/internationalScholarships.aspx",
+    "https://www.hec.gov.pk/english/scholarshipsgrants/Pages/NationalScholarships.aspx",
+    "https://scholarship.hec.gov.pk/",
+    "https://educationusa.state.gov/find-financial-aid",
+    "https://studentaid.gov/",
+    "https://www.educanada.ca/scholarships-bourses/index.aspx?lang=eng",
+    "https://www.studyaustralia.gov.au/en/plan-your-studies/scholarships",
+    "https://www.dfat.gov.au/people-to-people/australia-awards",
+    "https://www.mext.go.jp/en/policy/education/highered/title02/detail02/1373860.htm",
+    "https://www.studyinjapan.go.jp/en/planning/scholarships/",
+    "https://www.jasso.go.jp/en/ryugaku/scholarship_j/index.html",
+    "https://www.turkiyeburslari.gov.tr/",
+    "https://www.studyinkorea.go.kr/",
+    "https://www.campuschina.org/",
+    "https://www.chevening.org/scholarships/",
+    "https://www.chevening.org/scholarship/pakistan/",
+    "https://cscuk.fcdo.gov.uk/scholarships/",
+    "https://www.daad.de/stipdb-redirect/",
+    "https://www.daad.de/en/studying-in-germany/scholarships/",
+    "https://www.daad.pk/en/find-funding/scholarship-database/",
+    "https://www.eacea.ec.europa.eu/scholarships/erasmus-mundus-catalogue_en",
+    "https://erasmus-plus.ec.europa.eu/opportunities/opportunities-for-individuals/students",
+    "https://study-uk.britishcouncil.org/scholarships-funding",
+    "https://www.britishcouncil.pk/study-uk/scholarships-funding",
+    "https://www.britishcouncil.pk/study-uk/scholarships-funding/great-scholarships-pakistan",
+    "https://www.gatescambridge.org/",
+    "https://www.rhodeshouse.ox.ac.uk/scholarships/the-rhodes-scholarship/",
+    "https://www.knight-hennessy.stanford.edu/",
+    "https://vanier.gc.ca/en/home-accueil.html",
+    "https://banting.fellowships-bourses.gc.ca/",
+    "https://si.se/en/apply/scholarships/",
+    "https://www.studyinnl.org/finances/nl-scholarship",
+    "https://www.nzscholarships.govt.nz/",
+    "https://www.isdb.org/scholarships",
+    "https://www.worldbank.org/en/programs/scholarships",
+    "https://www.adb.org/work-with-us/careers/japan-scholarship-program",
+    "https://the.akdn/en/how-we-work/our-agencies/aga-khan-foundation/international-scholarship-programme",
+    "https://www.rotary.org/en/our-programs/scholarships",
+    "https://www.ox.ac.uk/admissions/graduate/fees-and-funding",
+    "https://www.cam.ac.uk/study-at-cambridge/fees-and-finance",
+    "https://www.cambridgetrust.org/scholarships/",
+    "https://www.harvard.edu/admissions-aid/",
+    "https://financialaid.stanford.edu/",
+    "https://sfs.mit.edu/",
+    "https://www.yale.edu/admissions/financial-aid",
+    "https://admission.princeton.edu/financial-aid",
+    "https://www.utoronto.ca/financial-aid",
+    "https://students.ubc.ca/enrolment/finances/awards-scholarships-bursaries",
+    "https://www.unimelb.edu.au/scholarships",
+    "https://www.sydney.edu.au/scholarships/",
+    "https://www.unsw.edu.au/study/how-to-apply/scholarships",
     "https://www.scholarships.com/",
-    "https://www.scholars4dev.com/",
-    "https://opportunitiescorners.com/scholarships/",
-    "https://www.scholars4dev.com/category/scholarships/",
-    "https://opportunitiescorners.com/category/internships/",
-    "https://hec.gov.pk/english/scholarshipsgrants/Pages/default.aspx",
+    "https://www.fastweb.com/",
+    "https://bigfuture.collegeboard.org/scholarship-search",
+    "https://bold.org/scholarships/",
+    "https://www.iefa.org/scholarships",
+    "https://www.internationalscholarships.com/",
+    "https://www.internationalstudent.com/scholarships/",
+    "https://www.mastersportal.com/scholarships/",
+    "https://www.wemakescholars.com/scholarship",
+    "https://www.scholarshiptab.com/",
+    "https://www.scholars4dev.com/category/scholarships-list/",
+    "https://scholarsapp.com/",
+    "https://www.timeshighereducation.com/student/advice/scholarships",
+    "https://www.topuniversities.com/student-info/scholarship-advice",
+    "https://www.studyinternational.com/news/category/scholarships/",
+    "https://www.study.eu/scholarships",
+    "https://www.findamasters.com/guides/postgraduate-scholarships",
+    "https://www.findaphd.com/guides/phd-scholarships"
 ]
 
 TOP_K_CHUNKS = 5
 
 claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 scraper       = WebScraper()
-vector_store  = VectorStore()
+# ChromaStore: persists embeddings to ./chroma_db/ on disk.
+# Falls back to in-memory keyword search if chromadb package is not installed.
+vector_store  = ChromaStore()
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -598,7 +694,7 @@ BOT_SYSTEM_PROMPTS = {
 # SCHEMA FIELD WHITELISTS
 # ═══════════════════════════════════════════════════════
 
-_USER_MUTABLE_FIELDS   = {"name", "handle", "avatar", "bio", "profile", "followers", "following", "saved_posts", "updated_at"}
+_USER_MUTABLE_FIELDS   = {"name", "handle", "avatar", "banner", "bio", "profile", "followers", "following", "saved_posts", "updated_at"}
 _USER_IMMUTABLE_FIELDS = {"email", "password", "user_type", "created_at", "_id"}
 _POST_MUTABLE_FIELDS   = {"text", "tag", "updated_at"}
 _POST_COUNTER_FIELDS   = {"likes", "liked_by", "saved_by", "comments"}
@@ -613,10 +709,15 @@ def _whitelist(doc: dict, allowed: set) -> dict:
 # SCRAPE JOB
 # ═══════════════════════════════════════════════════════
 
-def run_scrape(urls: List[str] | None = None, reset: bool = False) -> Dict:
+def run_scrape(urls: List[str] | None = None, reset: bool = True) -> Dict:
     target_urls = urls or URLS_TO_SCRAPE
     if reset:
         vector_store.clear()
+        if scholarships_col is not None:
+            scholarships_col.delete_many({"scraped_at": {"$exists": True, "$ne": None}})
+        if internships_col is not None:
+            internships_col.delete_many({"scraped_at": {"$exists": True, "$ne": None}})
+
     chunks = scraper.scrape_urls(target_urls)
     opp_stats = persist_opportunities_from_chunks(chunks, scholarships_col, internships_col)
     if not chunks:
@@ -635,13 +736,85 @@ def run_scrape(urls: List[str] | None = None, reset: bool = False) -> Dict:
     return {"chunks_added": added, "total": vector_store.count(), **opp_stats}
 
 
+def run_ai_chat_scrape() -> Dict:
+    """
+    Dedicated AI-chat ChromaDB scrape job.
+
+    Runs every day at 2:00 AM (scheduled in lifespan).
+    Re-crawls all scholarship/opportunity URLs and refreshes the ChromaDB
+    vector store so the AI assistant always has fresh context.
+    """
+    print("[AIChatScrape] Starting nightly ChromaDB refresh...")
+    try:
+        vector_store.clear()
+        chunks = scraper.scrape_urls(URLS_TO_SCRAPE)
+        added = 0
+        for chunk in chunks:
+            stored = vector_store.add_chunks(
+                chunks=[chunk["text"]],
+                url=chunk["url"],
+                metadata_extra={
+                    "source_domain": chunk["source_domain"],
+                    "scraped_at":    chunk["scraped_at"],
+                },
+            )
+            added += stored
+        print(f"[AIChatScrape] Done — {added} chunks stored in ChromaDB (total={vector_store.count()}).")
+        return {"chunks_added": added, "total": vector_store.count()}
+    except Exception as e:
+        print(f"[AIChatScrape] Error: {e}")
+        return {"error": str(e)}
+
+
+def run_news_scrape_job() -> Dict:
+    """
+    Dedicated news RSS scrape job.
+
+    Runs every day at 2:05 AM (scheduled in lifespan).
+    Fetches headlines from education RSS feeds and upserts into
+    MongoDB `news_articles` collection. Auto-cleans articles older than 30 days.
+    """
+    print("[NewsScrapeJob] Starting nightly news feed refresh...")
+    try:
+        stats = _run_news_scrape_feeds(news_col)
+        print(f"[NewsScrapeJob] Done — {stats}")
+        return stats
+    except Exception as e:
+        print(f"[NewsScrapeJob] Error: {e}")
+        return {"error": str(e)}
+
+
+def run_news_cleanup_job() -> Dict:
+    """
+    Dedicated news cleanup job.
+
+    Runs every day at 2:10 AM (after the RSS scrape job).
+    Removes all news articles whose `published_at` is older than 30 days.
+    """
+    print("[NewsCleanupJob] Removing news articles older than 30 days...")
+    try:
+        stats = _cleanup_old_news(news_col)
+        print(f"[NewsCleanupJob] Done — {stats}")
+        return stats
+    except Exception as e:
+        print(f"[NewsCleanupJob] Error: {e}")
+        return {"error": str(e)}
+
+
 def run_opportunity_scrape_only() -> Dict:
     """Re-crawl seed URLs and refresh scholarships/internships without touching the vector DB."""
+    if scholarships_col is not None:
+        scholarships_col.delete_many({"scraped_at": {"$exists": True, "$ne": None}})
+    if internships_col is not None:
+        internships_col.delete_many({"scraped_at": {"$exists": True, "$ne": None}})
     chunks = scraper.scrape_urls(URLS_TO_SCRAPE)
     stats = persist_opportunities_from_chunks(chunks, scholarships_col, internships_col)
     return {"mode": "opportunities_only", **stats}
 
 def seed_dummy_content() -> None:
+    if mongo_db is None or posts_col is None:
+        print("Warning: Skipping database seeding because MongoDB connection is None")
+        return
     if posts_col.count_documents({}) == 0:
         now = datetime.utcnow()
         posts_col.insert_many([
@@ -774,25 +947,39 @@ async def lifespan(app: FastAPI):
     global _scheduler
     init_database_schema()
     seed_dummy_content()
-    if ENABLE_STARTUP_SCRAPE:
-        if vector_store.count() == 0:
-            # FIX: Use asyncio.to_thread (Python 3.9+) — non-blocking, no deprecated get_event_loop()
-            asyncio.create_task(asyncio.to_thread(run_scrape))
-        else:
-            n_opp = scholarships_col.count_documents({}) + internships_col.count_documents({})
-            if n_opp < 8:
-                asyncio.create_task(asyncio.to_thread(run_opportunity_scrape_only))
+    if mongo_db is not None:
+        if ENABLE_STARTUP_SCRAPE:
+            if vector_store.count() == 0:
+                # FIX: Use asyncio.to_thread (Python 3.9+) — non-blocking, no deprecated get_event_loop()
+                asyncio.create_task(asyncio.to_thread(run_scrape))
+            else:
+                n_opp = scholarships_col.count_documents({}) + internships_col.count_documents({})
+                if n_opp < 8:
+                    asyncio.create_task(asyncio.to_thread(run_opportunity_scrape_only))
     if _scheduler is None:
         _scheduler = BackgroundScheduler()
+        # AI Chat ChromaDB refresh — every day at 2:00 AM
         _scheduler.add_job(
-            run_scrape, CronTrigger(hour=2, minute=0),
-            id="nightly_scrape", replace_existing=True,
+            run_ai_chat_scrape, CronTrigger(hour=2, minute=0),
+            id="ai_chat_chroma_scrape", replace_existing=True,
         )
+        # News RSS feed refresh — every day at 2:05 AM (offset to avoid overlap)
+        _scheduler.add_job(
+            run_news_scrape_job, CronTrigger(hour=2, minute=5),
+            id="news_rss_scrape", replace_existing=True,
+        )
+        # News cleanup — every day at 2:10 AM (after scrape, removes articles > 30 days old)
+        _scheduler.add_job(
+            run_news_cleanup_job, CronTrigger(hour=2, minute=10),
+            id="news_cleanup", replace_existing=True,
+        )
+        # Opportunity scrape (scholarships/internships to MongoDB) — 2pm daily
         _scheduler.add_job(
             run_opportunity_scrape_only, CronTrigger(hour=14, minute=0),
             id="midday_opportunities", replace_existing=True,
         )
         _scheduler.start()
+        print("[Scheduler] Jobs registered: ai_chat_chroma_scrape@02:00, news_rss_scrape@02:05, news_cleanup@02:10, midday_opportunities@14:00")
     yield
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
@@ -803,11 +990,19 @@ async def lifespan(app: FastAPI):
 
 # FIX: Wildcard origin + allow_credentials=True is rejected by browsers
 #      and is a security misconfiguration. Default to localhost only.
+#      Include both 5173 and 5174 since Vite auto-increments the port when 5173 is busy.
 _raw_origins    = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+    "http://localhost:3000,http://localhost:5173,http://localhost:5174,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5174",
 )
-ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+_origins_list = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+# Always ensure Vite dev ports are in the list (safety net)
+for _port in ("5173", "5174", "5175"):
+    for _host in ("http://localhost", "http://127.0.0.1"):
+        _origin = f"{_host}:{_port}"
+        if _origin not in _origins_list:
+            _origins_list.append(_origin)
+ALLOWED_ORIGINS = _origins_list
 
 app = FastAPI(title="ScholarAI API", version="5.1", lifespan=lifespan)
 app.mount("/uploads", StaticFiles(directory=LOCAL_UPLOAD_DIR), name="uploads")
@@ -905,10 +1100,18 @@ class LoginRequest(BaseModel):
 
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+
+
 class UpdateUserRequest(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
+    banner: Optional[str] = None
     profile: Optional[dict] = None
 
 class CreatePostRequest(BaseModel):
@@ -936,7 +1139,8 @@ class CommentRequest(BaseModel):
     text: str
 
 class DMThreadRequest(BaseModel):
-    recipient_id: str
+    recipient_id: Optional[str] = None
+    recipient_ids: Optional[List[str]] = None
 
 class DMMessageRequest(BaseModel):
     text: str
@@ -1011,7 +1215,43 @@ def _serialize(doc: dict) -> dict:
     return doc
 
 def _get_thread_id(uid1: str, uid2: str) -> str:
-    return "_".join(sorted([uid1, uid2]))
+    return "_".join(sorted(list(set([uid1, uid2]))))
+
+def _get_thread_id_multiple(uids: List[str]) -> str:
+    return "_".join(sorted(list(set(uids))))
+
+def _populate_thread_users(thread, me_id):
+    participants = thread.get("participants", [])
+    other_ids = [p for p in participants if p != me_id]
+    if not other_ids and len(participants) > 0:
+        other_ids = [me_id]
+    
+    other_users = []
+    for oid in other_ids:
+        other = r_users_col.find_one(
+            {"_id": _safe_user_id(oid)},
+            {"name": 1, "handle": 1, "avatar": 1, "user_type": 1},
+        )
+        if other:
+            other = _serialize(other)
+            other["id"] = other.get("_id")
+            other["is_online"] = manager.is_online(oid)
+            other_users.append(other)
+            
+    thread["other_users"] = other_users
+    if len(other_users) == 1:
+        thread["other_user"] = other_users[0]
+    elif len(other_users) > 1:
+        thread["other_user"] = {
+            "id": "group_" + thread["thread_id"],
+            "name": ", ".join(u["name"] for u in other_users),
+            "handle": ", ".join(u["handle"] for u in other_users),
+            "avatar": None,
+            "user_type": "group"
+        }
+    else:
+        thread["other_user"] = None
+    return thread
 
 def _parse_object_id(value: str, field_name: str = "id") -> ObjectId:
     try:
@@ -1019,21 +1259,47 @@ def _parse_object_id(value: str, field_name: str = "id") -> ObjectId:
     except Exception:
         raise HTTPException(400, f"Invalid {field_name}")
 
-def _build_system_prompt(contexts: List[dict]) -> str:
+def _safe_user_id(uid):
+    if uid is None:
+        return None
+    if isinstance(uid, ObjectId):
+        return uid
+    if ObjectId.is_valid(uid):
+        return ObjectId(uid)
+    return uid
+
+def _build_system_prompt(contexts: List[dict], db_scholarships: List[dict] = None) -> str:
     blocks = [
-        f"[Source {i} | {c['url']} | score {c['score']}]\n{c['text']}"
+        f"[Source {i} | {c['url']} | score {c.get('score', 0)}]\n{c['text']}"
         for i, c in enumerate(contexts, 1)
     ]
-    return (
-        "You are a helpful scholarship research assistant.\n"
-        "Answer ONLY from the context below.\n\n"
-        "CONTEXT:\n" + "\n\n---\n\n".join(blocks) + "\n\n"
+    
+    db_blocks = []
+    if db_scholarships:
+        for ds in db_scholarships:
+            deadline_str = ds['deadline'].strftime("%Y-%m-%d") if isinstance(ds.get('deadline'), datetime) else str(ds.get('deadline'))
+            db_blocks.append(
+                f"[Structured Scholarship | Title: {ds.get('title')} | Source: {ds.get('source_name', 'Unknown')} | "
+                f"Country: {ds.get('country')} | Type: {ds.get('type')} | Level: {ds.get('degree_level', 'Unknown')} | "
+                f"Funding: {ds.get('funding_type', 'Unknown')} | Deadline: {deadline_str} | Apply URL: {ds.get('apply_url')}]\n"
+                f"Eligibility: {ds.get('eligibility')}"
+            )
+            
+    system_text = "You are a helpful scholarship research assistant.\nAnswer ONLY from the context below.\n\n"
+    
+    if db_blocks:
+        system_text += "STRUCTURED FACTUAL SCHOLARSHIPS:\n" + "\n\n---\n\n".join(db_blocks) + "\n\n"
+        
+    system_text += "SCRAPED PAGE CHUNKS CONTEXT:\n" + "\n\n---\n\n".join(blocks) + "\n\n"
+    
+    system_text += (
         "RULES:\n"
         "- Be concise and direct.\n"
         "- If the answer is not in the context, say: \"I couldn't find that in the scraped content.\"\n"
         "- Do NOT make up facts.\n"
         "- Mention source URLs.\n"
     )
+    return system_text
 
 
 def _build_general_assistant_system(bot_type: str) -> str:
@@ -1051,12 +1317,12 @@ def _build_general_assistant_system(bot_type: str) -> str:
 
 
 def _generate_answer(
-    question: str, history: List[dict], contexts: List[dict], bot_type: str = "general"
+    question: str, history: List[dict], contexts: List[dict], bot_type: str = "general", db_scholarships: List[dict] = None
 ) -> str:
     messages = [{"role": h["role"], "content": h["content"]} for h in history]
     messages.append({"role": "user", "content": question})
-    if contexts:
-        system = _build_system_prompt(contexts)
+    if contexts or db_scholarships:
+        system = _build_system_prompt(contexts, db_scholarships)
         bot_prefix = BOT_SYSTEM_PROMPTS.get(bot_type)
         if bot_prefix:
             system = bot_prefix + "\n\n" + system
@@ -1087,13 +1353,15 @@ def get_status():
 
 @app.get("/health")
 def health():
+    mongo_ok = r_scholarships_col is not None
     return {
         "status": "ok",
-        "mongo": True,
-        "vector_chunks": vector_store.count(),
-        "scholarships": r_scholarships_col.count_documents({}),
-        "internships": r_internships_col.count_documents({}),
+        "mongo": mongo_ok,
+        "vector_chunks": vector_store.count() if hasattr(vector_store, "count") else 0,
+        "scholarships": r_scholarships_col.count_documents({}) if mongo_ok else 0,
+        "internships": r_internships_col.count_documents({}) if r_internships_col is not None else 0,
     }
+
 
 @app.post("/scrape")
 def manual_scrape(payload: ScrapeRequest, current_user: dict = Depends(get_current_user)):
@@ -1121,13 +1389,23 @@ def chat(payload: ChatRequest, current_user: dict = Depends(get_current_user)):
     except Exception:
         contexts = []
 
+    db_scholarships = []
+    try:
+        db_scholarships = list(r_scholarships_col.find({"$text": {"$search": question}}).limit(3))
+    except Exception:
+        pass
+
     sources = list(dict.fromkeys(c["url"] for c in contexts))
+    for ds in db_scholarships:
+        if ds.get("apply_url") and ds["apply_url"] not in sources:
+            sources.append(ds["apply_url"])
+
     user_id = current_user["sub"]
     conversation_id = payload.conversation_id or user_id
     warning: Optional[str] = None
 
     try:
-        answer = _generate_answer(question, history, contexts, payload.bot_type)
+        answer = _generate_answer(question, history, contexts, payload.bot_type, db_scholarships)
     except anthropic.APIError:
         answer = (
             "The AI assistant cannot reach Claude right now. Please try again shortly. "
@@ -1173,25 +1451,77 @@ def chat_history(current_user: dict = Depends(get_current_user)):
     return msgs
 
 # ═══════════════════════════════════════════════════════
-# NEWS
+# NEWS  (MongoDB-backed RSS feed articles)
 # ═══════════════════════════════════════════════════════
 
 @app.get("/news")
-def get_news(limit: int = 20):
+def get_news(limit: int = 20, skip: int = 0, tag: Optional[str] = None):
+    """
+    Return news articles scraped from RSS feeds, stored in MongoDB.
+    Sorted by published_at descending (newest first).
+    Falls back to ChromaDB-derived snippets if no news articles in DB yet.
+    """
+    if r_news_col is not None:
+        try:
+            query_filter: Dict = {}
+            if tag:
+                query_filter["tag"] = tag
+            docs = list(
+                r_news_col.find(query_filter)
+                .sort("published_at", DESCENDING)
+                .skip(skip)
+                .limit(limit)
+            )
+            if docs:
+                news = []
+                for i, d in enumerate(docs):
+                    news.append({
+                        "id":           str(d.get("_id", i)),
+                        "title":        d.get("title", ""),
+                        "summary":      d.get("summary", ""),
+                        "url":          d.get("url", ""),
+                        "source":       d.get("source", ""),
+                        "tag":          d.get("tag", "News"),
+                        "favicon":      d.get("favicon", "📰"),
+                        "published_at": d["published_at"].isoformat() if isinstance(d.get("published_at"), datetime) else str(d.get("published_at", "")),
+                        "scraped_at":   d["scraped_at"].isoformat() if isinstance(d.get("scraped_at"), datetime) else str(d.get("scraped_at", "")),
+                    })
+                total = r_news_col.count_documents(query_filter)
+                return {"news": news, "total": total, "source": "mongodb"}
+        except Exception as e:
+            print(f"[/news] MongoDB fetch error: {e}")
+
+    # Fallback: derive news snippets from ChromaDB / in-memory vector store
     results = vector_store.query("scholarship internship deadline grant", top_k=limit)
     news = [
         {
-            "id":         i + 1,
-            "title":      r["text"].split("\n")[0][:100],
-            "snippet":    r["text"][:200].replace("\n", " "),
+            "id":         str(i + 1),
+            "title":      r["text"].split("\n")[0][:120],
+            "summary":    r["text"][:250].replace("\n", " "),
             "url":        r["url"],
-            "site":       r.get("source_domain", ""),
+            "source":     r.get("source_domain", ""),
+            "tag":        "Scraped",
+            "favicon":    "📰",
+            "published_at": r.get("scraped_at", ""),
             "scraped_at": r.get("scraped_at", ""),
-            "score":      r.get("score", 0),
         }
         for i, r in enumerate(results)
     ]
-    return {"news": news, "total": len(news)}
+    return {"news": news, "total": len(news), "source": "chromadb"}
+
+
+@app.post("/news/scrape")
+def trigger_news_scrape(current_user: dict = Depends(get_current_user)):
+    """Manually trigger the news RSS scraper (admin use)."""
+    stats = run_news_scrape_job()
+    return {"status": "done", **stats}
+
+
+@app.post("/news/cleanup")
+def trigger_news_cleanup(current_user: dict = Depends(get_current_user)):
+    """Manually delete news articles older than 30 days (admin use)."""
+    stats = run_news_cleanup_job()
+    return {"status": "done", **stats}
 
 
 @app.get("/guides/degree-attestation")
@@ -1200,28 +1530,28 @@ def get_degree_attestation_guide():
 
 
 @app.get("/recommendations/matches")
-def recommendations_matches(limit: int = 8, current_user: dict = Depends(get_current_user)):
-    user = r_users_col.find_one({"_id": ObjectId(current_user["sub"])})
+def recommendations_matches(limit: int = 100, current_user: dict = Depends(get_current_user)):
+    user = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
     if not user:
         raise HTTPException(404, "User not found")
     profile = user.get("profile") or {}
     now = datetime.utcnow()
     scholarships = list(
-        r_scholarships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(80)
+        r_scholarships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(100)
     )
     internships = list(
-        r_internships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(80)
+        r_internships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(100)
     )
     ranked_s = sorted(
         scholarships,
         key=lambda d: _score_doc_for_profile(d, profile, "scholarship"),
         reverse=True,
-    )[: max(1, min(limit, 24))]
+    )
     ranked_i = sorted(
         internships,
         key=lambda d: _score_doc_for_profile(d, profile, "internship"),
         reverse=True,
-    )[: max(1, min(limit, 24))]
+    )
     for lst in (ranked_s, ranked_i):
         for d in lst:
             d["_id"] = str(d["_id"])
@@ -1330,8 +1660,8 @@ def search_users(
     me = current_user["sub"]
     rx = re.compile(re.escape(needle), re.I)
     cur = r_users_col.find(
-        {"_id": {"$ne": ObjectId(me)}, "$or": [{"handle": rx}, {"name": rx}]},
-        {"password": 0, "name": 1, "handle": 1, "user_type": 1, "avatar": 1},
+        {"_id": {"$ne": _safe_user_id(me)}, "$or": [{"handle": rx}, {"name": rx}]},
+        {"name": 1, "handle": 1, "user_type": 1, "avatar": 1},
     ).limit(lim)
     users_out: List[dict] = []
     for u in cur:
@@ -1350,7 +1680,7 @@ def search_users(
 @app.post("/recruiter/jobs", status_code=201)
 def recruiter_create_job(data: JobPostingCreate, current_user: dict = Depends(get_current_user)):
     uid = current_user["sub"]
-    u = r_users_col.find_one({"_id": ObjectId(uid)})
+    u = r_users_col.find_one({"_id": _safe_user_id(uid)})
     if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
         raise HTTPException(403, "Only approved recruiter accounts can publish roles")
     if not data.title.strip():
@@ -1385,7 +1715,7 @@ def recruiter_create_job(data: JobPostingCreate, current_user: dict = Depends(ge
 @app.get("/recruiter/jobs/me")
 def recruiter_list_jobs(current_user: dict = Depends(get_current_user)):
     uid = current_user["sub"]
-    u = r_users_col.find_one({"_id": ObjectId(uid)})
+    u = r_users_col.find_one({"_id": _safe_user_id(uid)})
     if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
         raise HTTPException(403, "Approved recruiter accounts only")
     jobs = list(r_job_postings_col.find({"recruiter_id": uid}).sort("created_at", -1))
@@ -1427,6 +1757,26 @@ def list_public_jobs(
     return {"items": docs, "total": total, "page": page, "limit": lim}
 
 
+# DEBUG: Temporary endpoint to inspect applications for a job (dev only)
+@app.get("/debug/applications/{job_id}")
+def debug_applications_for_job(job_id: str):
+    """Return applications documents for a given job_id for debugging purposes.
+    NOT FOR PRODUCTION — remove when debugging is complete.
+    """
+    try:
+        docs = list(applications_col.find({"item_type": "job_posting", "item_id": job_id}).sort("created_at", DESCENDING).limit(50))
+    except Exception as e:
+        raise HTTPException(500, f"DB query failed: {e}")
+    out = []
+    for d in docs:
+        d = _serialize(d)
+        # redact large fields
+        if d and "cv_extracted_text" in d:
+            d["cv_extracted_text"] = (d["cv_extracted_text"] or "")[:200]
+        out.append(d)
+    return {"count": len(out), "applications": out}
+
+
 @app.post("/jobs/{job_id}/apply-with-cv", status_code=201)
 async def apply_to_job_with_cv(
     job_id: str,
@@ -1444,7 +1794,7 @@ async def apply_to_job_with_cv(
     if current_user is None:
         raise HTTPException(401, "Unauthorized")
 
-    applicant = r_users_col.find_one({"_id": ObjectId(current_user["sub"])})
+    applicant = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
     if not applicant or applicant.get("user_type") != "student":
         raise HTTPException(403, "Only student accounts can apply to recruiter job postings")
 
@@ -1483,16 +1833,24 @@ async def apply_to_job_with_cv(
     except Exception as exc:
         raise HTTPException(400, f"CV extraction failed: {exc}")
 
-    analysis = analyze_cv_against_job(extracted_text, job)
+    try:
+        analysis = analyze_cv_against_job(extracted_text, job) or {}
+        if not isinstance(analysis, dict):
+            analysis = {}
+    except Exception as exc:
+        # If analysis fails, don't block the application — record minimal analysis info
+        analysis = {"score": 0, "status": "Analysis Failed", "issues": [str(exc)]}
+
     minimum_score = job.get("minimum_cv_score") if isinstance(job.get("minimum_cv_score"), int) else 45
-    show_to_recruiter = analysis.get("show_to_recruiter", True)
-    if job.get("auto_hide_irrelevant_cvs", True) and analysis.get("score", 0) < minimum_score:
+    show_to_recruiter = bool(analysis.get("show_to_recruiter", True))
+    if job.get("auto_hide_irrelevant_cvs", True) and (analysis.get("score", 0) or 0) < minimum_score:
         show_to_recruiter = False
 
     review_status = "auto_shortlisted"
-    if analysis["status"] == "Needs Manual Review":
+    analysis_status = (analysis.get("status") or "").strip()
+    if analysis_status == "Needs Manual Review":
         review_status = "needs_review"
-    elif analysis["status"] == "Irrelevant or Unusual CV":
+    elif analysis_status == "Irrelevant or Unusual CV":
         review_status = "auto_hidden"
 
     doc = {
@@ -1517,8 +1875,10 @@ async def apply_to_job_with_cv(
     }
     try:
         result = applications_col.insert_one(doc)
-    except Exception:
+    except DuplicateKeyError:
         raise HTTPException(409, "Application already exists for this job")
+    except Exception as exc:
+        raise HTTPException(500, f"Application creation failed: {exc}")
 
     return {
         "status": "created",
@@ -1536,38 +1896,51 @@ def recruiter_list_job_applications(
     review_status: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
-    uid = current_user["sub"]
-    u = r_users_col.find_one({"_id": ObjectId(uid)})
-    if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
-        raise HTTPException(403, "Approved recruiter accounts only")
-    oid = _parse_object_id(job_id, "job_id")
-    job = r_job_postings_col.find_one({"_id": oid})
-    if not job or job.get("recruiter_id") != uid:
-        raise HTTPException(404, "Job not found")
+    try:
+        uid = current_user["sub"]
+        u = r_users_col.find_one({"_id": _safe_user_id(uid)})
+        if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
+            raise HTTPException(403, "Approved recruiter accounts only")
+        oid = _parse_object_id(job_id, "job_id")
+        job = job_postings_col.find_one({"_id": oid})
+        if not job or job.get("recruiter_id") != uid:
+            raise HTTPException(404, "Job not found")
 
-    query = {"item_id": job_id, "item_type": "job_posting"}
-    if min_score is not None:
-        query["cv_score"] = {"$gte": min_score}
-    if match_status:
-        query["cv_match_status"] = match_status
-    if review_status:
-        query["review_status"] = review_status
-    if not show_hidden:
-        query["show_to_recruiter"] = True
+        query = {"item_id": job_id, "item_type": "job_posting"}
+        if min_score is not None:
+            query["cv_score"] = {"$gte": min_score}
+        if match_status:
+            query["cv_match_status"] = match_status
+        if review_status:
+            query["review_status"] = review_status
+        if not show_hidden:
+            query["show_to_recruiter"] = True
 
-    apps = list(r_applications_col.find(query).sort([("cv_score", DESCENDING), ("created_at", DESCENDING)]))
-    out: List[dict] = []
-    for a in apps:
-        a["_id"] = str(a["_id"])
-        _serialize(a)
-        applicant = r_users_col.find_one(
-            {"_id": ObjectId(a["user_id"])},
-            {"password": 0, "name": 1, "email": 1, "handle": 1, "avatar": 1, "profile": 1, "user_type": 1},
-        )
-        if applicant:
-            applicant["_id"] = str(applicant["_id"])
-        out.append({**a, "applicant": applicant})
-    return {"applications": out}
+        # Read from primary to avoid read-replica lag
+        apps = list(applications_col.find(query).sort([("cv_score", DESCENDING), ("created_at", DESCENDING)]))
+        out: List[dict] = []
+        for a in apps:
+            a["_id"] = str(a["_id"])
+            _serialize(a)
+            # handle user_id stored as string or ObjectId
+            try:
+                applicant_oid = ObjectId(a.get("user_id")) if not isinstance(a.get("user_id"), ObjectId) else a.get("user_id")
+            except Exception:
+                applicant_oid = a.get("user_id")
+            applicant = r_users_col.find_one(
+                {"_id": applicant_oid},
+                {"password": 0},
+            )
+            if applicant:
+                applicant["_id"] = str(applicant["_id"])
+            out.append({**a, "applicant": applicant})
+        return {"applications": out}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback, sys
+        traceback.print_exc(file=sys.stdout)
+        raise HTTPException(500, f"Recruiter applications error: {exc}")
 
 
 @app.put("/recruiter/applications/{application_id}/review")
@@ -1577,12 +1950,14 @@ def recruiter_review_application(
     current_user: dict = Depends(get_current_user),
 ):
     uid = current_user["sub"]
-    u = r_users_col.find_one({"_id": ObjectId(uid)})
+    u = r_users_col.find_one({"_id": _safe_user_id(uid)})
     if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
         raise HTTPException(403, "Approved recruiter accounts only")
 
     oid = _parse_object_id(application_id, "application_id")
-    application = r_applications_col.find_one({"_id": oid})
+    # Read/write recruiter actions should operate on the primary
+    # `applications` collection to avoid replica lag and allow updates.
+    application = applications_col.find_one({"_id": oid})
     if not application:
         raise HTTPException(404, "Application not found")
     if application.get("item_type") != "job_posting":
@@ -1603,14 +1978,14 @@ def recruiter_review_application(
         "show_to_recruiter": show_to_recruiter,
         "updated_at": datetime.utcnow(),
     }
-    r_applications_col.update_one({"_id": oid}, {"$set": update_doc})
+    applications_col.update_one({"_id": oid}, {"$set": update_doc})
     return {"status": "updated"}
 
 
 @app.get("/recruiter/dashboard")
 def recruiter_dashboard(current_user: dict = Depends(get_current_user)):
     uid = current_user["sub"]
-    u = r_users_col.find_one({"_id": ObjectId(uid)})
+    u = r_users_col.find_one({"_id": _safe_user_id(uid)})
     if not u or u.get("user_type") != "recruiter" or u.get("status") != "approved":
         raise HTTPException(403, "Approved recruiter accounts only")
     prof = u.get("profile") or {}
@@ -1795,6 +2170,7 @@ def login(data: LoginRequest):
             "user_type": user["user_type"],
             "handle":    user.get("handle", ""),
             "avatar":    user.get("avatar"),
+            "banner":    user.get("banner"),
             "bio":       user.get("bio"),
             "profile":   user.get("profile", {}),
             "followers": user.get("followers", []),
@@ -1907,7 +2283,7 @@ def admin_get_stats(current_user: dict = Depends(get_current_user)):
 
 @app.get("/users/{user_id}")
 def get_user(user_id: str):
-    user = r_users_col.find_one({"_id": ObjectId(user_id)})
+    user = r_users_col.find_one({"_id": _safe_user_id(user_id)})
     if not user:
         raise HTTPException(404, "User not found")
     user["_id"] = str(user["_id"])
@@ -1934,6 +2310,11 @@ def update_user(
         if av.startswith("http") and CLOUDINARY_CONFIGURED and not _allowed_image_url(av):
             raise HTTPException(400, "Profile photo must use an image uploaded through SCHLR")
         raw_update["avatar"] = av or None
+    if data.banner is not None:
+        bn = (data.banner or "").strip()
+        if bn.startswith("http") and CLOUDINARY_CONFIGURED and not _allowed_image_url(bn):
+            raise HTTPException(400, "Banner photo must use an image uploaded through SCHLR")
+        raw_update["banner"] = bn or None
     if data.profile is not None:
         allowed_profile_keys = {
             "university",
@@ -1962,13 +2343,13 @@ def update_user(
             "cv_url",
             "work_email",
         }
-        existing = users_col.find_one({"_id": ObjectId(user_id)}, {"profile": 1}) or {}
+        existing = users_col.find_one({"_id": _safe_user_id(user_id)}, {"profile": 1}) or {}
         current_profile = existing.get("profile") or {}
         filtered = {k: v for k, v in data.profile.items() if k in allowed_profile_keys}
         raw_update["profile"] = {**current_profile, **filtered}
 
     safe_update = _strip_immutable(raw_update, _USER_IMMUTABLE_FIELDS)
-    users_col.update_one({"_id": ObjectId(user_id)}, {"$set": safe_update})
+    users_col.update_one({"_id": _safe_user_id(user_id)}, {"$set": safe_update})
     return {"status": "updated"}
 
 
@@ -1988,8 +2369,37 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
     # Remove from saved_posts on posts
     posts_col.update_many({}, {"$pull": {"saved_by": user_id, "liked_by": user_id}})
 
-    users_col.delete_one({"_id": ObjectId(user_id)})
+    users_col.delete_one({"_id": _safe_user_id(user_id)})
     return {"status": "deleted"}
+
+
+@app.post("/users/{user_id}/change-password")
+def change_password(
+    user_id: str,
+    data: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["sub"] != user_id:
+        raise HTTPException(403, "Cannot change another user's password")
+
+    user = users_col.find_one({"_id": _safe_user_id(user_id)})
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if not verify_password(data.old_password, user["password"]):
+        raise HTTPException(400, "Incorrect current password")
+
+    if not _is_strong_password(data.new_password):
+        raise HTTPException(
+            400,
+            "New password must be at least 8 characters and include uppercase, lowercase, number, and special character"
+        )
+
+    users_col.update_one(
+        {"_id": _safe_user_id(user_id)},
+        {"$set": {"password": hash_password(data.new_password), "updated_at": datetime.utcnow()}}
+    )
+    return {"status": "password_changed"}
 
 
 @app.post("/users/{user_id}/follow")
@@ -1998,19 +2408,19 @@ def follow_user(user_id: str, current_user: dict = Depends(get_current_user)):
     if me_id == user_id:
         raise HTTPException(400, "Cannot follow yourself")
 
-    target = r_users_col.find_one({"_id": ObjectId(user_id)})
+    target = r_users_col.find_one({"_id": _safe_user_id(user_id)})
     if not target:
         raise HTTPException(404, "User not found")
 
     already_following = me_id in target.get("followers", [])
 
     if already_following:
-        users_col.update_one({"_id": ObjectId(user_id)}, {"$pull":     {"followers": me_id}})
-        users_col.update_one({"_id": ObjectId(me_id)},   {"$pull":     {"following": user_id}})
+        users_col.update_one({"_id": _safe_user_id(user_id)}, {"$pull":     {"followers": me_id}})
+        users_col.update_one({"_id": _safe_user_id(me_id)},   {"$pull":     {"following": user_id}})
         return {"status": "unfollowed"}
     else:
-        users_col.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"followers": me_id}})
-        users_col.update_one({"_id": ObjectId(me_id)},   {"$addToSet": {"following": user_id}})
+        users_col.update_one({"_id": _safe_user_id(user_id)}, {"$addToSet": {"followers": me_id}})
+        users_col.update_one({"_id": _safe_user_id(me_id)},   {"$addToSet": {"following": user_id}})
         return {"status": "followed"}
 
 
@@ -2018,7 +2428,7 @@ def follow_user(user_id: str, current_user: dict = Depends(get_current_user)):
 def saved_posts(user_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["sub"] != user_id:
         raise HTTPException(403, "Cannot view another user's saved posts")
-    user = r_users_col.find_one({"_id": ObjectId(user_id)}, {"saved_posts": 1})
+    user = r_users_col.find_one({"_id": _safe_user_id(user_id)}, {"saved_posts": 1})
     saved_ids = [ObjectId(pid) for pid in (user or {}).get("saved_posts", [])]
     posts = list(r_posts_col.find({"_id": {"$in": saved_ids}}).sort("created_at", -1))
     for p in posts:
@@ -2248,7 +2658,7 @@ def create_post(data: CreatePostRequest, current_user: dict = Depends(get_curren
 
     user_id = current_user["sub"]
     user = r_users_col.find_one(
-        {"_id": ObjectId(user_id)}, {"name": 1, "handle": 1, "user_type": 1, "avatar": 1}
+        {"_id": _safe_user_id(user_id)}, {"name": 1, "handle": 1, "user_type": 1, "avatar": 1}
     )
     if not user:
         raise HTTPException(404, "User not found")
@@ -2344,7 +2754,7 @@ def update_post(
     if post["user_id"] != current_user["sub"]:
         raise HTTPException(403, "Cannot edit another user's post")
 
-    editor = r_users_col.find_one({"_id": ObjectId(current_user["sub"])}, {"user_type": 1}) or {}
+    editor = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])}, {"user_type": 1}) or {}
 
     img = (data.image_url or "").strip() or None
     if img:
@@ -2423,7 +2833,7 @@ def add_comment(
 ):
     user_id = current_user["sub"]
     user    = r_users_col.find_one(
-        {"_id": ObjectId(user_id)}, {"name": 1, "handle": 1, "avatar": 1}
+        {"_id": _safe_user_id(user_id)}, {"name": 1, "handle": 1, "avatar": 1}
     )
 
     comment = {
@@ -2475,15 +2885,15 @@ def save_post(post_id: str, current_user: dict = Depends(get_current_user)):
     if not post:
         raise HTTPException(404, "Post not found")
 
-    user  = users_col.find_one({"_id": ObjectId(user_id)}, {"saved_posts": 1})
+    user  = users_col.find_one({"_id": _safe_user_id(user_id)}, {"saved_posts": 1})
     saved = (user or {}).get("saved_posts", [])
 
     if post_id in saved:
-        users_col.update_one({"_id": ObjectId(user_id)}, {"$pull":     {"saved_posts": post_id}})
+        users_col.update_one({"_id": _safe_user_id(user_id)}, {"$pull":     {"saved_posts": post_id}})
         posts_col.update_one( {"_id": ObjectId(post_id)},{"$pull":     {"saved_by": user_id}})
         return {"status": "unsaved"}
     else:
-        users_col.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"saved_posts": post_id}})
+        users_col.update_one({"_id": _safe_user_id(user_id)}, {"$addToSet": {"saved_posts": post_id}})
         posts_col.update_one( {"_id": ObjectId(post_id)},{"$addToSet": {"saved_by": user_id}})
         return {"status": "saved"}
 
@@ -2517,6 +2927,16 @@ def create_scholarship(data: ScholarshipRequest, current_user: dict = Depends(ge
     }
     result = scholarships_col.insert_one(doc)
     return {"status": "created", "id": str(result.inserted_id)}
+
+@app.get("/news/scholarships")
+def get_news_scholarships(limit: int = 10):
+    query = {"scraped_at": {"$ne": None}}
+    docs = list(r_scholarships_col.find(query).sort("created_at", -1).limit(limit))
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        _serialize(d)
+    return {"scholarships": docs}
+
 
 @app.get("/scholarships")
 def list_scholarships(
@@ -2678,7 +3098,7 @@ def create_application(data: ApplicationRequest, current_user: dict = Depends(ge
     if data.status not in VALID_APPLICATION_STATUSES:
         raise HTTPException(400, f"Invalid status. Allowed: {VALID_APPLICATION_STATUSES}")
 
-    applicant = r_users_col.find_one({"_id": ObjectId(current_user["sub"])})
+    applicant = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
     if not applicant:
         raise HTTPException(404, "User not found")
 
@@ -2723,8 +3143,10 @@ def create_application(data: ApplicationRequest, current_user: dict = Depends(ge
     }
     try:
         result = applications_col.insert_one(doc)
-    except Exception:
+    except DuplicateKeyError:
         raise HTTPException(409, "Application already exists for this item")
+    except Exception as exc:
+        raise HTTPException(500, f"Application creation failed: {exc}")
     return {"status": "created", "id": str(result.inserted_id)}
 
 @app.get("/applications/me")
@@ -2751,6 +3173,22 @@ def list_my_applications(
     for d in docs:
         d["_id"] = str(d["_id"])
         _serialize(d)
+        item_id = d.get("item_id")
+        i_type = d.get("item_type")
+        details = None
+        try:
+            if i_type == "scholarship":
+                details = r_scholarships_col.find_one({"_id": ObjectId(item_id)})
+            elif i_type == "internship":
+                details = r_internships_col.find_one({"_id": ObjectId(item_id)})
+            elif i_type == "job_posting":
+                details = r_job_postings_col.find_one({"_id": ObjectId(item_id)})
+            if details:
+                details["_id"] = str(details["_id"])
+                _serialize(details)
+        except Exception:
+            pass
+        d["item_details"] = details
     return {"items": docs, "total": total, "page": page, "limit": limit}
 
 @app.put("/applications/{application_id}")
@@ -2783,7 +3221,7 @@ def update_application(
     }
     if data.item_type == "job_posting" and data.status == "applied":
         if not update_doc.get("cv_url"):
-            applicant = r_users_col.find_one({"_id": ObjectId(current_user["sub"])}, {"profile": 1})
+            applicant = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])}, {"profile": 1})
             prof = (applicant or {}).get("profile") or {}
             fallback_cv = (prof.get("cv_url") or "").strip() or None
             if fallback_cv:
@@ -2876,18 +3314,7 @@ def get_dm_threads(current_user: dict = Depends(get_current_user)):
             {"thread_id": t["thread_id"]}, sort=[("created_at", -1)]
         )
         t["last_message"] = _serialize(copy.deepcopy(last_msg)) if last_msg else None
-        other_id = next((p for p in t["participants"] if p != user_id), None)
-        if other_id:
-            other = r_users_col.find_one(
-                {"_id": ObjectId(other_id)},
-                {"name": 1, "handle": 1, "avatar": 1, "user_type": 1},
-            )
-            if other:
-                other = _serialize(other)
-                other["id"] = other.get("_id")
-                t["other_user"] = other
-            else:
-                t["other_user"] = None
+        _populate_thread_users(t, user_id)
     return threads
 
 
@@ -2896,37 +3323,33 @@ def create_or_get_thread(
     data: DMThreadRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    me_id        = current_user["sub"]
-    recipient_id = data.recipient_id
+    me_id = current_user["sub"]
 
-    if me_id == recipient_id:
-        raise HTTPException(400, "Cannot message yourself")
+    recipients = []
+    if data.recipient_ids:
+        recipients = list(data.recipient_ids)
+    elif data.recipient_id:
+        recipients = [data.recipient_id]
 
-    thread_id = _get_thread_id(me_id, recipient_id)
+    participants = list(set([me_id] + recipients))
+
+    thread_id = _get_thread_id_multiple(participants)
     existing  = r_dm_threads_col.find_one({"thread_id": thread_id})
 
     if existing:
         existing["_id"] = str(existing["_id"])
-        other_id = next((p for p in existing["participants"] if p != me_id), None)
-        if other_id:
-            other = r_users_col.find_one(
-                {"_id": ObjectId(other_id)},
-                {"name": 1, "handle": 1, "avatar": 1, "user_type": 1},
-            )
-            if other:
-                other = _serialize(other)
-                other["id"] = other.get("_id")
-                existing["other_user"] = other
+        _populate_thread_users(existing, me_id)
         return existing
 
     thread = {
         "thread_id":    thread_id,
-        "participants": [me_id, recipient_id],
+        "participants": participants,
         "created_at":   datetime.utcnow(),
         "updated_at":   datetime.utcnow(),
     }
     result = dm_threads_col.insert_one(thread)
     thread["_id"] = str(result.inserted_id)
+    _populate_thread_users(thread, me_id)
     return thread
 
 @app.post("/dm/threads/{thread_id}/messages", status_code=201)
@@ -2944,7 +3367,7 @@ def send_thread_message(
     if not text:
         raise HTTPException(400, "Message text is required")
 
-    user_doc = r_users_col.find_one({"_id": ObjectId(user_id)}, {"name": 1})
+    user_doc = r_users_col.find_one({"_id": _safe_user_id(user_id)}, {"name": 1})
     msg_doc = {
         "thread_id": thread_id,
         "sender_id": user_id,
@@ -2986,6 +3409,34 @@ def get_thread_messages(
         m["_id"] = str(m["_id"])
     return msgs
 
+
+@app.delete("/dm/messages/{message_id}")
+async def delete_dm_message(message_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["sub"]
+    oid = _parse_object_id(message_id, "message_id")
+    msg = r_dm_messages_col.find_one({"_id": oid})
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if msg.get("sender_id") != user_id:
+        raise HTTPException(403, "Cannot delete another user's message")
+
+    thread_id = msg.get("thread_id")
+    dm_messages_col.delete_one({"_id": oid})
+
+    # Broadcast deletion to other participants via WebSocket
+    thread = r_dm_threads_col.find_one({"thread_id": thread_id})
+    if thread:
+        for p in thread["participants"]:
+            if p != user_id:
+                await manager.send_to_user(p, {
+                    "type": "message_deleted",
+                    "message_id": message_id,
+                    "thread_id": thread_id
+                })
+
+    return {"status": "deleted"}
+
+
 # ═══════════════════════════════════════════════════════
 # DIRECT MESSAGES — WEBSOCKET
 # ═══════════════════════════════════════════════════════
@@ -3002,7 +3453,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = ""
         return
 
     await manager.connect(websocket, user_id)
-    user_doc = r_users_col.find_one({"_id": ObjectId(user_id)}, {"name": 1, "handle": 1})
+    try:
+        user_threads = list(r_dm_threads_col.find({"participants": user_id}))
+        notified_users = set()
+        for t in user_threads:
+            for p in t["participants"]:
+                if p != user_id:
+                    notified_users.add(p)
+        for p in notified_users:
+            await manager.send_to_user(p, {
+                "type": "user_status",
+                "user_id": user_id,
+                "status": "online"
+            })
+    except Exception as e:
+        print(f"Error broadcasting online status: {e}")
+    user_doc = r_users_col.find_one({"_id": _safe_user_id(user_id)}, {"name": 1, "handle": 1})
 
     try:
         while True:
@@ -3024,8 +3490,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = ""
                 if not thread or user_id not in thread["participants"]:
                     continue
 
-                recipient_id = next(p for p in thread["participants"] if p != user_id)
-
                 msg_doc = {
                     "thread_id":   thread_id,
                     "sender_id":   user_id,
@@ -3043,18 +3507,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = ""
                     {"$set": {"updated_at": datetime.utcnow()}},
                 )
 
-                await manager.send_to_user(recipient_id, {"type": "message", **msg_doc})
+                for p in thread["participants"]:
+                    if p != user_id:
+                        await manager.send_to_user(p, {"type": "message", **msg_doc})
                 await websocket.send_json({"type": "message_sent", **msg_doc})
 
             elif msg_type == "typing":
-                recipient_id = data.get("recipient_id")
                 thread_id    = data.get("thread_id", "")
-                if recipient_id:
-                    await manager.send_to_user(recipient_id, {
-                        "type":      "typing",
-                        "sender_id": user_id,
-                        "thread_id": thread_id,
-                    })
+                thread = r_dm_threads_col.find_one({"thread_id": thread_id})
+                if thread and user_id in thread["participants"]:
+                    for p in thread["participants"]:
+                        if p != user_id:
+                            await manager.send_to_user(p, {
+                                "type":      "typing",
+                                "sender_id": user_id,
+                                "thread_id": thread_id,
+                            })
 
             elif msg_type == "read":
                 thread_id = data.get("thread_id")
@@ -3067,16 +3535,34 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = ""
                 )
 
                 thread = r_dm_threads_col.find_one({"thread_id": thread_id})
-                if thread:
-                    other_id = next(
-                        (p for p in thread["participants"] if p != user_id), None
-                    )
-                    if other_id:
-                        await manager.send_to_user(other_id, {
-                            "type":      "read",
-                            "thread_id": thread_id,
-                            "reader_id": user_id,
-                        })
+                if thread and user_id in thread["participants"]:
+                    for p in thread["participants"]:
+                        if p != user_id:
+                            await manager.send_to_user(p, {
+                                "type":      "read",
+                                "thread_id": thread_id,
+                                "reader_id": user_id,
+                            })
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
+        if not manager.is_online(user_id):
+            try:
+                user_threads = list(r_dm_threads_col.find({"participants": user_id}))
+                notified_users = set()
+                for t in user_threads:
+                    for p in t["participants"]:
+                        if p != user_id:
+                            notified_users.add(p)
+                for p in notified_users:
+                    await manager.send_to_user(p, {
+                        "type": "user_status",
+                        "user_id": user_id,
+                        "status": "offline"
+                    })
+            except Exception as e:
+                print(f"Error broadcasting offline status: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -39,7 +39,8 @@ def _ocr_image_bytes(content: bytes) -> str:
             image = image.convert("RGB")
         return pytesseract.image_to_string(image)
     except Exception as exc:
-        raise RuntimeError(f"Image OCR failed: {exc}")
+        print(f"Image OCR failed: {exc}")
+        return "[Image CV uploaded. OCR is not configured or failed on this server.]"
 
 
 def _ocr_pdf_bytes(content: bytes) -> str:
@@ -76,7 +77,7 @@ def extract_text_from_cv(file_path: str, filename: str, content_type: Optional[s
             except Exception:
                 pass
         if not text.strip():
-            raise ValueError("Unable to extract readable text from PDF CV")
+            return "[Scanned PDF CV uploaded. OCR is not configured or failed on this server.]"
         return text
 
     if ext == ".docx":
@@ -104,7 +105,7 @@ def extract_text_from_cv(file_path: str, filename: str, content_type: Optional[s
             raw = f.read()
         text = _ocr_image_bytes(raw)
         if not text.strip():
-            raise ValueError("Unable to extract readable text from image CV")
+            return "[Image CV uploaded. OCR is not configured or failed on this server.]"
         return text
 
     raise ValueError("Unsupported CV file format")

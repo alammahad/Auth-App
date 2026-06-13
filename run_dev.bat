@@ -11,7 +11,6 @@ echo Starting Backend (FastAPI on port 8000) and Frontend (Vite on port 5173)...
 echo.
 
 REM Run the dev command from package.json
-cd ..
 npm run dev
 
 echo.
