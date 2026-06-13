@@ -238,15 +238,20 @@ def _infer_field(text: str) -> str:
             "data science",
             "machine learning",
             " cs ",
+            "programming",
+            "web development",
+            "information technology",
         )
     ):
         return "Computer Science / IT"
-    if any(x in low for x in ("engineering", "mechanical", "electrical", "civil")):
+    if any(x in low for x in ("engineering", "mechanical", "electrical", "civil", "chemical", "aerospace")):
         return "Engineering"
-    if any(x in low for x in ("business", "finance", "marketing", "management")):
+    if any(x in low for x in ("business", "finance", "marketing", "management", "accounting", "economics", "consulting")):
         return "Business"
-    if any(x in low for x in ("biology", "chemistry", "physics", "research lab")):
+    if any(x in low for x in ("biology", "chemistry", "physics", "research lab", "scientific", "mathematics", "biomedical", "medical", "healthcare", "pharma")):
         return "Science / Research"
+    if any(x in low for x in ("design", "ui/ux", "graphic", "creative", "media", "journalism", "content writer", "copywriting")):
+        return "Arts / Design / Media"
     return "General"
 
 
@@ -306,7 +311,12 @@ def persist_opportunities_from_chunks(
             skipped += 1
             continue
 
-        title = _title_from_text(text, url)
+        title = group[0].get("title")
+        if title:
+            title = title.strip()
+        if not title:
+            title = _title_from_text(text, url)
+            
         deadline = _parse_deadline(text) or _default_deadline()
         elig = text[:1500].strip()
 

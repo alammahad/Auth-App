@@ -18,8 +18,8 @@ class WebScraper:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         }
         
-        # Using a timeout of 10.0s for slow university/govt domains and following redirects
-        with httpx.Client(headers=headers, timeout=10.0, follow_redirects=True) as client:
+        # Disable SSL verification (verify=False) for slow university/govt domains and follow redirects
+        with httpx.Client(headers=headers, timeout=10.0, follow_redirects=True, verify=False) as client:
             for url in urls:
                 try:
                     r = client.get(url)
@@ -27,6 +27,9 @@ class WebScraper:
                         continue
                     
                     soup = BeautifulSoup(r.text, 'html.parser')
+                    
+                    # Extract page title before removing header tags
+                    page_title = soup.title.string.strip() if soup.title else ""
                     
                     # Remove non-content elements to extract clean information
                     for element in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
@@ -55,7 +58,8 @@ class WebScraper:
                             "text": chunk_payload,
                             "url": url,
                             "source_domain": source_domain,
-                            "scraped_at": scraped_at
+                            "scraped_at": scraped_at,
+                            "title": page_title
                         })
                         start += chunk_size - overlap
                         

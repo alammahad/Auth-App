@@ -2055,11 +2055,9 @@ export function MultiSelectDropdown({ label, options, selected, onChange, placeh
           pointerEvents: isOpen ? "auto" : "none",
           transition: "opacity 0.25s ease, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
           backgroundColor: "var(--white-solid)",
-          border: "1px solid var(--border)",
+          border: "1px solid var(--glass-border)",
           borderRadius: "16px",
-          boxShadow: "var(--shadow-lg)",
-          backdropFilter: "none",
-          WebkitBackdropFilter: "none"
+          boxShadow: "var(--glass-shadow)"
         }}
       >
         {options.length > 5 && (
@@ -2475,7 +2473,7 @@ export function ChatSection({ user, token }) {
       
       let reply = data.answer || "No response received.";
       if (data.warning === "ai_upstream") {
-        reply += "\n\n— Note: language model unreachable. Verify ANTHROPIC_API_KEY in backend/.env.";
+        reply += "\n\n— Note: language model unreachable. Verify ANTHROPIC_API_KEY or GEMINI_API_KEY in backend/.env.";
       }
       if (Array.isArray(data.sources) && data.sources.length > 0) {
         reply += "\n\nSources:\n" + data.sources.slice(0, 3).map((u) => "• " + u).join("\n");

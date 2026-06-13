@@ -18,7 +18,7 @@ python-docx==0.8.11
 pytesseract==0.3.13
 Pillow>=10.3.0
 pdf2image==1.16.3
-sentence-transformers>=2.7.0
-scikit-learn>=1.4.0
-chromadb>=0.4.0
+# sentence-transformers>=2.7.0
+# scikit-learn>=1.4.0
+# chromadb>=0.4.0
 feedparser>=6.0.0

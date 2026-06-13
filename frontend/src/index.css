@@ -1586,12 +1586,9 @@ p {
 }
 .multi-select-dropdown-panel {
   background: var(--white-solid) !important;
-  background-color: var(--white-solid) !important;
-  border: 1px solid var(--border) !important;
+  border: 1px solid var(--glass-border) !important;
   border-radius: 16px !important;
-  box-shadow: var(--shadow-lg) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  box-shadow: var(--glass-shadow) !important;
   scrollbar-width: thin;
   scrollbar-color: var(--brown2) transparent;
 }

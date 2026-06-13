@@ -588,8 +588,16 @@ def init_database_schema() -> None:
 # ═══════════════════════════════════════════════════════
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-if not ANTHROPIC_API_KEY:
-    raise ValueError("ANTHROPIC_API_KEY is missing in .env")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Auto-detect if user put a Gemini key inside ANTHROPIC_API_KEY
+if ANTHROPIC_API_KEY and not ANTHROPIC_API_KEY.startswith("sk-ant-") and ANTHROPIC_API_KEY != "yahan_apni_real_key_dalo":
+    if not GEMINI_API_KEY:
+        GEMINI_API_KEY = ANTHROPIC_API_KEY
+    ANTHROPIC_API_KEY = None
+
+if not ANTHROPIC_API_KEY and not GEMINI_API_KEY:
+    raise ValueError("Neither ANTHROPIC_API_KEY nor GEMINI_API_KEY is defined in .env")
 
 # FIX: Corrected model identifier
 CLAUDE_MODEL = "claude-sonnet-4-5-20251001"
@@ -669,7 +677,10 @@ URLS_TO_SCRAPE: List[str] = [
 
 TOP_K_CHUNKS = 5
 
-claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+if ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "yahan_apni_real_key_dalo":
+    claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+else:
+    claude_client = None
 scraper       = WebScraper()
 # ChromaStore: persists embeddings to ./chroma_db/ on disk.
 # Falls back to in-memory keyword search if chromadb package is not installed.
@@ -1268,7 +1279,14 @@ def _safe_user_id(uid):
         return ObjectId(uid)
     return uid
 
-def _build_system_prompt(contexts: List[dict], db_scholarships: List[dict] = None) -> str:
+def _build_system_prompt(
+    contexts: List[dict], 
+    db_scholarships: List[dict] = None, 
+    db_internships: List[dict] = None, 
+    db_stats: dict = None,
+    user_profile: dict = None,
+    user_name: str = None
+) -> str:
     blocks = [
         f"[Source {i} | {c['url']} | score {c.get('score', 0)}]\n{c['text']}"
         for i, c in enumerate(contexts, 1)
@@ -1285,27 +1303,80 @@ def _build_system_prompt(contexts: List[dict], db_scholarships: List[dict] = Non
                 f"Eligibility: {ds.get('eligibility')}"
             )
             
-    system_text = "You are a helpful scholarship research assistant.\nAnswer ONLY from the context below.\n\n"
+    db_int_blocks = []
+    if db_internships:
+        for di in db_internships:
+            deadline_str = di['deadline'].strftime("%Y-%m-%d") if isinstance(di.get('deadline'), datetime) else str(di.get('deadline'))
+            db_int_blocks.append(
+                f"[Structured Internship | Title: {di.get('title')} | Company: {di.get('company')} | "
+                f"Location: {di.get('location')} | Field: {di.get('field')} | Stipend: {di.get('stipend', 'N/A')} | "
+                f"Paid: {di.get('is_paid', False)} | Duration: {di.get('duration_weeks', 'N/A')} weeks | "
+                f"Deadline: {deadline_str} | Apply URL: {di.get('apply_url')}]"
+            )
+            
+    system_text = (
+        "You are SCHLR AI, a helpful assistant trained specifically for the SCHLR (ScholarAI) website.\n"
+        "You must only answer questions related to scholarships, internships, CVs, admissions, and educational opportunities on SCHLR.\n"
+        "If the user asks an unrelated question (such as recipes, coding, general trivia, gaming, etc.), politely decline and explain that you are only trained for the SCHLR website.\n"
+        "Otherwise, answer ONLY from the context and database statistics provided below.\n\n"
+    )
+    
+    if user_name or user_profile:
+        system_text += "USER PROFILE INFORMATION:\n"
+        if user_name:
+            system_text += f"- Name: {user_name}\n"
+        if user_profile:
+            for k, v in user_profile.items():
+                if v:
+                    system_text += f"- {k.replace('_', ' ').title()}: {v}\n"
+        system_text += "\n"
+
+    if db_stats:
+        system_text += "DATABASE STATISTICS:\n"
+        system_text += f"- Total internships available in system: {db_stats.get('total_internships', 0)}\n"
+        system_text += f"- Total scholarships available in system: {db_stats.get('total_scholarships', 0)}\n"
+        if 'matching_internships' in db_stats:
+            system_text += f"- Internships matching user profile constraints (Field/Location): {db_stats.get('matching_internships', 0)}\n"
+        if 'matching_scholarships' in db_stats:
+            system_text += f"- Scholarships matching user profile constraints (Degree/Location): {db_stats.get('matching_scholarships', 0)}\n"
+        system_text += "\n"
     
     if db_blocks:
         system_text += "STRUCTURED FACTUAL SCHOLARSHIPS:\n" + "\n\n---\n\n".join(db_blocks) + "\n\n"
+        
+    if db_int_blocks:
+        system_text += "STRUCTURED FACTUAL INTERNSHIPS:\n" + "\n\n---\n\n".join(db_int_blocks) + "\n\n"
         
     system_text += "SCRAPED PAGE CHUNKS CONTEXT:\n" + "\n\n---\n\n".join(blocks) + "\n\n"
     
     system_text += (
         "RULES:\n"
         "- Be concise and direct.\n"
-        "- If the answer is not in the context, say: \"I couldn't find that in the scraped content.\"\n"
+        "- If the answer is not in the context or database content, say: \"I couldn't find that in the database or scraped content.\"\n"
         "- Do NOT make up facts.\n"
-        "- Mention source URLs.\n"
+        "- Do NOT mention or output any external source URLs, website links, or domain names in your answer. Keep all references local to the SCHLR platform.\n"
     )
     return system_text
 
 
-def _build_general_assistant_system(bot_type: str) -> str:
+def _build_general_assistant_system(bot_type: str, user_profile: dict = None, user_name: str = None) -> str:
     base = (
         "You are SCHLR AI — a concise, professional advisor for scholarships, internships, CVs, and study preparation.\n"
-        "No SCHLR knowledge-base snippets matched this question.\n"
+        "You are trained specifically for the SCHLR (ScholarAI) website. You must only answer questions related to scholarships, internships, CVs, admissions, and educational opportunities on SCHLR.\n"
+        "If the user asks about completely unrelated topics (like gaming, recipes, general coding, pop culture, etc.), politely decline to answer, explaining that you are only trained to assist with SCHLR educational and career queries.\n"
+    )
+    
+    if user_name or user_profile:
+        base += "\nUSER PROFILE INFORMATION:\n"
+        if user_name:
+            base += f"- Name: {user_name}\n"
+        if user_profile:
+            for k, v in user_profile.items():
+                if v:
+                    base += f"- {k.replace('_', ' ').title()}: {v}\n"
+
+    base += (
+        "\nNo SCHLR knowledge-base snippets matched this question.\n"
         "Give generally sound guidance; do not invent specific program names, deadlines, acceptance rates, fees, or URLs.\n"
         "If facts are uncertain, say so and suggest checking official sources (universities, HEC, IBCC, MOFA, embassies).\n"
         "Use brief headings and bullets when helpful.\n"
@@ -1317,21 +1388,63 @@ def _build_general_assistant_system(bot_type: str) -> str:
 
 
 def _generate_answer(
-    question: str, history: List[dict], contexts: List[dict], bot_type: str = "general", db_scholarships: List[dict] = None
+    question: str, 
+    history: List[dict], 
+    contexts: List[dict], 
+    bot_type: str = "general", 
+    db_scholarships: List[dict] = None,
+    db_internships: List[dict] = None,
+    db_stats: dict = None,
+    user_profile: dict = None,
+    user_name: str = None
 ) -> str:
     messages = [{"role": h["role"], "content": h["content"]} for h in history]
     messages.append({"role": "user", "content": question})
-    if contexts or db_scholarships:
-        system = _build_system_prompt(contexts, db_scholarships)
+    if contexts or db_scholarships or db_internships or db_stats:
+        system = _build_system_prompt(contexts, db_scholarships, db_internships, db_stats, user_profile, user_name)
         bot_prefix = BOT_SYSTEM_PROMPTS.get(bot_type)
         if bot_prefix:
             system = bot_prefix + "\n\n" + system
     else:
-        system = _build_general_assistant_system(bot_type)
-    response = claude_client.messages.create(
-        model=CLAUDE_MODEL, max_tokens=1024, system=system, messages=messages,
-    )
-    return response.content[0].text.strip()
+        system = _build_general_assistant_system(bot_type, user_profile, user_name)
+
+    if GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo"):
+        import httpx
+        gemini_contents = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_contents.append({
+                "role": role,
+                "parts": [{"text": msg["content"]}]
+            })
+        payload = {
+            "contents": gemini_contents,
+            "generationConfig": {
+                "maxOutputTokens": 1024
+            }
+        }
+        if system:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system}]
+            }
+        headers = {"Content-Type": "application/json"}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        
+        with httpx.Client(timeout=30.0) as client:
+            r = client.post(url, json=payload, headers=headers)
+            r.raise_for_status()
+            res_json = r.json()
+            try:
+                return res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except (KeyError, IndexError):
+                raise ValueError(f"Unexpected response structure from Gemini API: {res_json}")
+    else:
+        if not claude_client:
+            raise ValueError("Claude client is not initialized and no GEMINI_API_KEY is configured.")
+        response = claude_client.messages.create(
+            model=CLAUDE_MODEL, max_tokens=1024, system=system, messages=messages,
+        )
+        return response.content[0].text.strip()
 
 # ═══════════════════════════════════════════════════════
 # CORE ROUTES
@@ -1339,7 +1452,13 @@ def _generate_answer(
 
 @app.get("/")
 def root():
-    return {"status": "running", "chunks_in_db": vector_store.count(), "model": CLAUDE_MODEL}
+    provider = "Gemini" if GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo") else "Claude"
+    return {
+        "status": "running",
+        "chunks_in_db": vector_store.count(),
+        "provider": provider,
+        "model": "gemini-2.5-flash" if provider == "Gemini" else CLAUDE_MODEL
+    }
 
 @app.get("/status")
 def get_status():
@@ -1395,21 +1514,67 @@ def chat(payload: ChatRequest, current_user: dict = Depends(get_current_user)):
     except Exception:
         pass
 
-    sources = list(dict.fromkeys(c["url"] for c in contexts))
-    for ds in db_scholarships:
-        if ds.get("apply_url") and ds["apply_url"] not in sources:
-            sources.append(ds["apply_url"])
+    db_internships = []
+    try:
+        db_internships = list(r_internships_col.find({"$text": {"$search": question}}).limit(3))
+    except Exception:
+        pass
+
+    # Do not return direct external source URLs to users
+    sources = []
 
     user_id = current_user["sub"]
     conversation_id = payload.conversation_id or user_id
     warning: Optional[str] = None
 
+    # Fetch user document from MongoDB to get actual profile details and name
+    user_doc = get_user_by_token(current_user) or {}
+    user_profile = user_doc.get("profile") or {}
+    user_name = user_doc.get("name", "Student")
+
+    # Fetch DB statistics to help the AI answer general counts
+    db_stats = {
+        "total_internships": r_internships_col.count_documents({}),
+        "total_scholarships": r_scholarships_col.count_documents({}),
+    }
+    
+    # Check user requirements/profile to calculate profile-matched statistics
+    target_country = user_profile.get("target_country") or user_profile.get("country")
+    major = user_profile.get("major") or user_profile.get("current_field")
+    degree = user_profile.get("degree")
+
+    if target_country or major:
+        int_filter = {}
+        if target_country:
+            int_filter["location"] = {"$regex": target_country, "$options": "i"}
+        if major:
+            int_filter["field"] = {"$regex": major, "$options": "i"}
+        try:
+            db_stats["matching_internships"] = r_internships_col.count_documents(int_filter)
+        except Exception:
+            db_stats["matching_internships"] = 0
+
+    if target_country or degree:
+        sch_filter = {}
+        if target_country:
+            sch_filter["country"] = {"$regex": target_country, "$options": "i"}
+        if degree:
+            sch_filter["$or"] = [
+                {"degree_level": {"$regex": degree, "$options": "i"}},
+                {"eligibility": {"$regex": degree, "$options": "i"}}
+            ]
+        try:
+            db_stats["matching_scholarships"] = r_scholarships_col.count_documents(sch_filter)
+        except Exception:
+            db_stats["matching_scholarships"] = 0
+
     try:
-        answer = _generate_answer(question, history, contexts, payload.bot_type, db_scholarships)
-    except anthropic.APIError:
+        answer = _generate_answer(question, history, contexts, payload.bot_type, db_scholarships, db_internships, db_stats, user_profile, user_name)
+    except Exception as e:
+        print(f"[ChatError] Language model call failed: {e}")
         answer = (
-            "The AI assistant cannot reach Claude right now. Please try again shortly. "
-            "If your project uses ANTHROPIC_API_KEY in `backend/.env`, confirm it is active and billed."
+            "The AI assistant cannot reach the language model right now. Please try again shortly. "
+            "If your project uses ANTHROPIC_API_KEY or GEMINI_API_KEY in `backend/.env`, confirm it is active and correct."
         )
         sources = []
         warning = "ai_upstream"
@@ -1448,6 +1613,7 @@ def chat_history(current_user: dict = Depends(get_current_user)):
     msgs = list(r_messages_col.find({"user_id": user_id}).sort("timestamp", 1))
     for m in msgs:
         m["_id"] = str(m["_id"])
+        m["sources"] = []
     return msgs
 
 # ═══════════════════════════════════════════════════════
