@@ -438,11 +438,22 @@ p {
   font-weight: 600;
   background: transparent;
   color: var(--muted);
-  transition: color var(--transition);
+  transition: color var(--transition), background-color var(--transition), box-shadow var(--transition);
 }
 .sliding-nav-btn.active {
   color: #ffffff;
+  background-color: var(--brown3);
+  box-shadow: 0 4px 12px rgba(66, 146, 198, 0.15);
 }
+.sliding-nav-container:has(.sliding-nav-pill) .sliding-nav-btn.active {
+  background-color: transparent;
+  box-shadow: none;
+}
+.sliding-nav-btn:not(.active):hover {
+  color: var(--brown3);
+}
+
+
 
 /* User Type Tags */
 .tag {
@@ -844,7 +855,7 @@ p {
 
 /* Chat Bubbles (Travel Assistant Theme) */
 .chat-bubble {
-  max-width: 75%;
+  max-width: 100%;
   padding: 14px 18px;
   border-radius: 18px;
   line-height: 1.6;
@@ -902,6 +913,45 @@ p {
   padding: 24px;
   margin-bottom: 20px;
   box-shadow: var(--shadow);
+}
+
+.btn-post-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.btn-post-action:hover {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--brown3);
+  border-color: rgba(66, 146, 198, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(8, 48, 107, 0.05);
+}
+.btn-post-action:active {
+  transform: translateY(0);
+}
+:root[data-theme="dark"] .btn-post-action {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+:root[data-theme="dark"] .btn-post-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--brown4);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* Contact lists and direct message grid layout */
@@ -1362,7 +1412,7 @@ p {
 
 /* Chat bubble base overrides */
 .chat-bubble {
-  max-width: 70%;
+  max-width: 100%;
   padding: 10px 16px;
   font-size: 14.5px;
   line-height: 1.5;

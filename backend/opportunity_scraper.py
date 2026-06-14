@@ -1,6 +1,14 @@
 """
 Heuristic extraction of scholarship / internship rows from WebScraper chunks.
 Upserts into MongoDB collections; safe to run repeatedly (dedupe_key).
+All internship documents are fully normalized with:
+  - workplace_type  : "remote" | "hybrid" | "onsite"
+  - country         : str or None (None when remote)
+  - city            : str or None
+  - has_stipend     : bool
+  - stipend         : float or None
+  - stipend_currency: str or None
+  - duration_weeks  : int or None
 """
 from __future__ import annotations
 
@@ -8,7 +16,7 @@ import hashlib
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import urlparse
 
 Chunk = Dict[str, Any]
@@ -38,21 +46,193 @@ DATE_PATTERNS = [
 ]
 
 _MONTHS = {
-    "jan": 1,
-    "feb": 2,
-    "mar": 3,
-    "apr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "aug": 8,
-    "sep": 9,
-    "sept": 9,
-    "oct": 10,
-    "nov": 11,
-    "dec": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+    "may": 5, "jun": 6, "jul": 7, "aug": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
+# ─── Country / City lookup tables ────────────────────────────────────────────
+
+_COUNTRY_PAIRS = [
+    ("pakistan", "Pakistan"),
+    ("united kingdom", "United Kingdom"),
+    (" uk ", "United Kingdom"),
+    ("u.k.", "United Kingdom"),
+    ("united states", "United States"),
+    (" usa ", "United States"),
+    ("u.s.a", "United States"),
+    ("u.s.", "United States"),
+    ("canada", "Canada"),
+    ("australia", "Australia"),
+    ("germany", "Germany"),
+    ("china", "China"),
+    ("japan", "Japan"),
+    ("south korea", "South Korea"),
+    (" korea ", "South Korea"),
+    ("turkey", "Turkey"),
+    ("türkiye", "Turkey"),
+    ("sweden", "Sweden"),
+    ("netherlands", "Netherlands"),
+    ("new zealand", "New Zealand"),
+    ("saudi arabia", "Saudi Arabia"),
+    ("france", "France"),
+    ("italy", "Italy"),
+    ("spain", "Spain"),
+    ("switzerland", "Switzerland"),
+    ("singapore", "Singapore"),
+    ("malaysia", "Malaysia"),
+    ("ireland", "Ireland"),
+    ("belgium", "Belgium"),
+    ("finland", "Finland"),
+    ("norway", "Norway"),
+    ("denmark", "Denmark"),
+    ("austria", "Austria"),
+    ("hong kong", "Hong Kong"),
+    (" uae ", "UAE"),
+    ("united arab emirates", "UAE"),
+    ("india", "India"),
+    ("brazil", "Brazil"),
+    ("mexico", "Mexico"),
+    ("poland", "Poland"),
+    ("czech republic", "Czech Republic"),
+    ("czechia", "Czech Republic"),
+    ("portugal", "Portugal"),
+    ("greece", "Greece"),
+    ("hungary", "Hungary"),
+    ("romania", "Romania"),
+    ("indonesia", "Indonesia"),
+    ("vietnam", "Vietnam"),
+    ("thailand", "Thailand"),
+    ("philippines", "Philippines"),
+    ("bangladesh", "Bangladesh"),
+    ("egypt", "Egypt"),
+    ("nigeria", "Nigeria"),
+    ("kenya", "Kenya"),
+    ("south africa", "South Africa"),
+    ("israel", "Israel"),
+    ("qatar", "Qatar"),
+    ("kuwait", "Kuwait"),
+    ("jordan", "Jordan"),
+    ("russia", "Russia"),
+    ("ukraine", "Ukraine"),
+    ("taiwan", "Taiwan"),
+]
+
+# City → Country mapping for normalization
+_CITY_COUNTRY: List[Tuple[str, str, str]] = [
+    # (keyword in text, city name, country name)
+    ("london", "London", "United Kingdom"),
+    ("manchester", "Manchester", "United Kingdom"),
+    ("edinburgh", "Edinburgh", "United Kingdom"),
+    ("birmingham", "Birmingham", "United Kingdom"),
+    ("new york", "New York", "United States"),
+    ("san francisco", "San Francisco", "United States"),
+    ("silicon valley", "San Francisco", "United States"),
+    ("seattle", "Seattle", "United States"),
+    ("boston", "Boston", "United States"),
+    ("chicago", "Chicago", "United States"),
+    ("los angeles", "Los Angeles", "United States"),
+    ("austin", "Austin", "United States"),
+    ("washington dc", "Washington D.C.", "United States"),
+    ("washington, d.c", "Washington D.C.", "United States"),
+    ("toronto", "Toronto", "Canada"),
+    ("vancouver", "Vancouver", "Canada"),
+    ("montreal", "Montreal", "Canada"),
+    ("berlin", "Berlin", "Germany"),
+    ("munich", "Munich", "Germany"),
+    ("hamburg", "Hamburg", "Germany"),
+    ("frankfurt", "Frankfurt", "Germany"),
+    ("paris", "Paris", "France"),
+    ("amsterdam", "Amsterdam", "Netherlands"),
+    ("rotterdam", "Rotterdam", "Netherlands"),
+    ("zurich", "Zurich", "Switzerland"),
+    ("geneva", "Geneva", "Switzerland"),
+    ("stockholm", "Stockholm", "Sweden"),
+    ("oslo", "Oslo", "Norway"),
+    ("copenhagen", "Copenhagen", "Denmark"),
+    ("helsinki", "Helsinki", "Finland"),
+    ("vienna", "Vienna", "Austria"),
+    ("brussels", "Brussels", "Belgium"),
+    ("sydney", "Sydney", "Australia"),
+    ("melbourne", "Melbourne", "Australia"),
+    ("singapore", "Singapore", "Singapore"),
+    ("hong kong", "Hong Kong", "Hong Kong"),
+    ("tokyo", "Tokyo", "Japan"),
+    ("seoul", "Seoul", "South Korea"),
+    ("beijing", "Beijing", "China"),
+    ("shanghai", "Shanghai", "China"),
+    ("shenzhen", "Shenzhen", "China"),
+    ("dubai", "Dubai", "UAE"),
+    ("abu dhabi", "Abu Dhabi", "UAE"),
+    ("karachi", "Karachi", "Pakistan"),
+    ("lahore", "Lahore", "Pakistan"),
+    ("islamabad", "Islamabad", "Pakistan"),
+    ("bangalore", "Bangalore", "India"),
+    ("mumbai", "Mumbai", "India"),
+    ("delhi", "Delhi", "India"),
+    ("hyderabad", "Hyderabad", "India"),
+    ("pune", "Pune", "India"),
+    ("madrid", "Madrid", "Spain"),
+    ("barcelona", "Barcelona", "Spain"),
+    ("milan", "Milan", "Italy"),
+    ("rome", "Rome", "Italy"),
+    ("warsaw", "Warsaw", "Poland"),
+    ("prague", "Prague", "Czech Republic"),
+    ("istanbul", "Istanbul", "Turkey"),
+    ("cairo", "Cairo", "Egypt"),
+    ("nairobi", "Nairobi", "Kenya"),
+    ("johannesburg", "Johannesburg", "South Africa"),
+    ("cape town", "Cape Town", "South Africa"),
+    ("sao paulo", "São Paulo", "Brazil"),
+    ("mexico city", "Mexico City", "Mexico"),
+    ("riyadh", "Riyadh", "Saudi Arabia"),
+    ("doha", "Doha", "Qatar"),
+    ("tel aviv", "Tel Aviv", "Israel"),
+    ("taipei", "Taipei", "Taiwan"),
+    ("jakarta", "Jakarta", "Indonesia"),
+    ("kuala lumpur", "Kuala Lumpur", "Malaysia"),
+    ("bangkok", "Bangkok", "Thailand"),
+    ("ho chi minh", "Ho Chi Minh City", "Vietnam"),
+    ("manila", "Manila", "Philippines"),
+    ("dhaka", "Dhaka", "Bangladesh"),
+    ("moscow", "Moscow", "Russia"),
+    ("kyiv", "Kyiv", "Ukraine"),
+]
+
+# ─── Stipend / currency detection ────────────────────────────────────────────
+
+_CURRENCY_PATTERNS = [
+    # (regex pattern, currency code)
+    (re.compile(r"€\s*[\d,]+|[\d,]+\s*€|eur\b", re.I), "EUR"),
+    (re.compile(r"\$\s*[\d,]+|[\d,]+\s*\$|usd\b|us\s*dollar", re.I), "USD"),
+    (re.compile(r"£\s*[\d,]+|[\d,]+\s*£|gbp\b|pound\b", re.I), "GBP"),
+    (re.compile(r"cad\b|c\$|canadian\s+dollar", re.I), "CAD"),
+    (re.compile(r"aud\b|a\$|australian\s+dollar", re.I), "AUD"),
+    (re.compile(r"pkr\b|rs\.?\s*[\d,]+|rupee", re.I), "PKR"),
+    (re.compile(r"sgd\b|s\$|singapore\s+dollar", re.I), "SGD"),
+    (re.compile(r"¥\s*[\d,]+|jpy\b|yen\b", re.I), "JPY"),
+    (re.compile(r"inr\b|₹\s*[\d,]+|indian\s+rupee", re.I), "INR"),
+]
+
+_STIPEND_AMOUNT_RE = re.compile(
+    r"(?:stipend|salary|pay|compensation|remuneration|allowance)[^\d]*"
+    r"([\d,]+(?:\.\d+)?)\s*(?:k\b)?",
+    re.I,
+)
+
+_GENERIC_AMOUNT_RE = re.compile(
+    r"(?:€|£|\$|¥|₹)\s*([\d,]+(?:\.\d+)?)(?:\s*k\b)?|"
+    r"([\d,]+(?:\.\d+)?)\s*(?:k\b)?\s*(?:€|£|usd|eur|gbp|cad|aud|pkr|sgd)/",
+    re.I,
+)
+
+_DURATION_RE = re.compile(
+    r"(\d+)\s*(?:-\s*\d+\s*)?(?:week|wk|month|months?)s?\b",
+    re.I,
+)
+
+
+# ─── Helper functions ─────────────────────────────────────────────────────────
 
 def _parse_deadline(text: str) -> Optional[datetime]:
     for pat in DATE_PATTERNS:
@@ -111,48 +291,79 @@ def _infer_scholarship_type(text: str) -> str:
 
 
 def _guess_country(text: str) -> str:
+    """Best-effort country from free text. Returns 'Various' if ambiguous."""
     low = text.lower()
-    pairs = [
-        ("pakistan", "Pakistan"),
-        ("united kingdom", "United Kingdom"),
-        (" uk ", "United Kingdom"),
-        ("u.k.", "United Kingdom"),
-        ("united states", "United States"),
-        ("usa", "United States"),
-        ("u.s.", "United States"),
-        ("canada", "Canada"),
-        ("australia", "Australia"),
-        ("germany", "Germany"),
-        ("china", "China"),
-        ("japan", "Japan"),
-        ("south korea", "South Korea"),
-        ("korea", "South Korea"),
-        ("turkey", "Turkey"),
-        ("türkiye", "Turkey"),
-        ("sweden", "Sweden"),
-        ("netherlands", "Netherlands"),
-        ("new zealand", "New Zealand"),
-        ("saudi arabia", "Saudi Arabia"),
-        ("france", "France"),
-        ("italy", "Italy"),
-        ("spain", "Spain"),
-        ("switzerland", "Switzerland"),
-        ("singapore", "Singapore"),
-        ("malaysia", "Malaysia"),
-        ("ireland", "Ireland"),
-        ("belgium", "Belgium"),
-        ("finland", "Finland"),
-        ("norway", "Norway"),
-        ("denmark", "Denmark"),
-        ("austria", "Austria"),
-        ("hong kong", "Hong Kong"),
-        ("uae", "UAE"),
-        ("united arab emirates", "UAE"),
-    ]
-    for needle, label in pairs:
+    for needle, label in _COUNTRY_PAIRS:
         if needle in low:
             return label
     return "Various"
+
+
+def _guess_city_and_country(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Returns (city, country) by scanning text for known city names."""
+    low = text.lower()
+    for keyword, city, country in _CITY_COUNTRY:
+        if keyword in low:
+            return city, country
+    return None, None
+
+
+def _infer_workplace_type(text: str) -> str:
+    """Classify as 'remote', 'hybrid', or 'onsite' from text signals."""
+    low = text.lower()
+    is_remote = bool(re.search(r"\bremote\b|work\s+from\s+home|wfh|fully\s+remote|100%\s+remote", low))
+    is_hybrid = bool(re.search(r"\bhybrid\b|partially\s+remote|flexible\s+work|mixed\s+mode", low))
+    is_onsite = bool(re.search(r"\bon[\s-]?site\b|in[\s-]?office\b|in[\s-]?person\b|physically\s+present", low))
+
+    if is_remote and not is_hybrid and not is_onsite:
+        return "remote"
+    if is_hybrid:
+        return "hybrid"
+    if is_remote and is_onsite:
+        return "hybrid"
+    return "onsite"
+
+
+def _extract_duration_weeks(text: str) -> Optional[int]:
+    """Extract duration in weeks. Converts months to weeks (×4.3)."""
+    m = _DURATION_RE.search(text)
+    if not m:
+        return None
+    val = int(m.group(1))
+    raw = m.group(0).lower()
+    if "month" in raw:
+        return round(val * 4)   # 1 month ≈ 4 weeks
+    return val  # already weeks
+
+
+def _extract_stipend(text: str) -> Tuple[Optional[float], Optional[str]]:
+    """Extract stipend amount and currency from text."""
+    # Detect currency first
+    currency = None
+    for pat, code in _CURRENCY_PATTERNS:
+        if pat.search(text):
+            currency = code
+            break
+
+    # Try to find explicit "stipend: $X" pattern first
+    m = _STIPEND_AMOUNT_RE.search(text)
+    if not m:
+        m = _GENERIC_AMOUNT_RE.search(text)
+
+    if m:
+        raw = m.group(1) or m.group(2) or ""
+        raw = raw.replace(",", "")
+        try:
+            amount = float(raw)
+            # Handle "k" suffix (e.g. "1.2k" → 1200)
+            if re.search(r"\d\s*k\b", m.group(0), re.I):
+                amount *= 1000
+            if amount > 0:
+                return amount, currency or "USD"
+        except ValueError:
+            pass
+
+    return None, None
 
 
 def _company_from_url(url: str) -> str:
@@ -164,7 +375,7 @@ def _company_from_url(url: str) -> str:
 def _infer_source_name(url: str, text: str) -> str:
     low_text = text.lower()
     low_url = url.lower()
-    
+
     if "chevening" in low_url or "chevening" in low_text:
         return "Chevening"
     if "daad" in low_url or "daad" in low_text:
@@ -193,7 +404,7 @@ def _infer_source_name(url: str, text: str) -> str:
         return "Asian Development Bank"
     if "turkiyeburslari" in low_url or "turkey scholarship" in low_text:
         return "Türkiye Bursları"
-    
+
     return _company_from_url(url)
 
 
@@ -208,7 +419,6 @@ def _infer_degree_level(text: str) -> str:
         levels.append("Bachelors")
     if any(x in low for x in ["postdoc", "postdoctoral"]):
         levels.append("Postdoc")
-    
     if levels:
         return "/".join(levels)
     return "Bachelors/Masters/PhD"
@@ -229,29 +439,25 @@ def _infer_funding_type(text: str) -> str:
 
 def _infer_field(text: str) -> str:
     low = text.lower()
-    if any(
-        x in low
-        for x in (
-            "computer science",
-            "software",
-            "developer",
-            "data science",
-            "machine learning",
-            " cs ",
-            "programming",
-            "web development",
-            "information technology",
-        )
-    ):
+    if any(x in low for x in (
+        "computer science", "software", "developer", "data science",
+        "machine learning", "artificial intelligence", " ai ", "deep learning",
+        " cs ", "programming", "web development", "information technology",
+        "cybersecurity", "cloud", "devops", "backend", "frontend",
+    )):
         return "Computer Science / IT"
     if any(x in low for x in ("engineering", "mechanical", "electrical", "civil", "chemical", "aerospace")):
         return "Engineering"
-    if any(x in low for x in ("business", "finance", "marketing", "management", "accounting", "economics", "consulting")):
+    if any(x in low for x in ("business", "finance", "marketing", "management", "accounting", "economics", "consulting", "sales", "hr ", "human resources")):
         return "Business"
-    if any(x in low for x in ("biology", "chemistry", "physics", "research lab", "scientific", "mathematics", "biomedical", "medical", "healthcare", "pharma")):
+    if any(x in low for x in ("biology", "chemistry", "physics", "research lab", "scientific", "mathematics", "biomedical", "medical", "healthcare", "pharma", "life science")):
         return "Science / Research"
-    if any(x in low for x in ("design", "ui/ux", "graphic", "creative", "media", "journalism", "content writer", "copywriting")):
+    if any(x in low for x in ("design", "ui/ux", "ux design", "product design", "graphic", "creative", "media", "journalism", "content writer", "copywriting", "social media")):
         return "Arts / Design / Media"
+    if any(x in low for x in ("law", "legal", "policy", "governance", "public policy", "international relations")):
+        return "Law / Policy"
+    if any(x in low for x in ("education", "teaching", "tutoring", "curriculum", "pedagogy")):
+        return "Education"
     return "General"
 
 
@@ -282,6 +488,78 @@ def _dedupe_key(kind: str, url: str, title: str) -> str:
     raw = f"{kind}|{url}|{title[:120]}".encode("utf-8", "ignore")
     return hashlib.sha256(raw).hexdigest()[:20]
 
+
+# ─── Normalization for a single internship text block ────────────────────────
+
+def normalize_internship_fields(text: str, url: str = "") -> dict:
+    """
+    Given raw scraped text, return a dict of all normalized internship fields.
+    Called both during scraping AND during backfill migration of old records.
+    """
+    workplace_type = _infer_workplace_type(text)
+    city, country_from_city = _guess_city_and_country(text)
+
+    # Country: prefer city-derived, fall back to text scan
+    if country_from_city:
+        country = country_from_city
+    elif workplace_type == "remote":
+        country = None   # remote has no single country
+    else:
+        raw_country = _guess_country(text)
+        country = None if raw_country == "Various" else raw_country
+
+    # For remote roles, don't assign a city
+    if workplace_type == "remote":
+        city = None
+        country = None
+
+    stipend_amount, stipend_currency = _extract_stipend(text)
+    is_paid = bool(
+        stipend_amount or
+        re.search(r"\b(paid|stipend|salary|competitive\s+pay|remuneration|compensation)\b", text, re.I)
+    )
+    has_stipend = bool(stipend_amount)
+
+    duration_weeks = _extract_duration_weeks(text)
+
+    return {
+        "workplace_type": workplace_type,
+        "country": country,
+        "city": city,
+        "is_paid": is_paid,
+        "has_stipend": has_stipend,
+        "stipend": stipend_amount,
+        "stipend_currency": stipend_currency,
+        "duration_weeks": duration_weeks,
+        "field": _infer_field(text),
+    }
+
+
+# ─── Backfill helper ─────────────────────────────────────────────────────────
+
+def backfill_internship_normalization(internships_col) -> int:
+    """
+    One-time migration: find all internships missing `workplace_type`
+    and re-normalize them from their stored description_excerpt or location.
+    Returns number of records updated.
+    """
+    missing = list(internships_col.find({"workplace_type": {"$exists": False}}))
+    updated = 0
+    for doc in missing:
+        text = (doc.get("description_excerpt") or
+                doc.get("eligibility") or
+                f"{doc.get('title', '')} {doc.get('location', '')} {doc.get('company', '')}")
+        url = doc.get("apply_url") or doc.get("source_url") or ""
+        fields = normalize_internship_fields(text, url)
+        internships_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": fields}
+        )
+        updated += 1
+    return updated
+
+
+# ─── Main persist function ────────────────────────────────────────────────────
 
 def persist_opportunities_from_chunks(
     chunks: List[Chunk],
@@ -316,7 +594,7 @@ def persist_opportunities_from_chunks(
             title = title.strip()
         if not title:
             title = _title_from_text(text, url)
-            
+
         deadline = _parse_deadline(text) or _default_deadline()
         elig = text[:1500].strip()
 
@@ -349,19 +627,36 @@ def persist_opportunities_from_chunks(
             )
             sch_added += 1
         else:
+            # ── Full normalization for internship ──
             dk = _dedupe_key("i", url, title)
-            loc = _guess_country(text)
-            if "remote" in text.lower():
-                loc = "Remote"
+            norm = normalize_internship_fields(text, url)
+
+            # Build human-readable location string
+            if norm["workplace_type"] == "remote":
+                location_str = "Remote"
+            elif norm["city"] and norm["country"]:
+                location_str = f"{norm['city']}, {norm['country']}"
+            elif norm["country"]:
+                location_str = norm["country"]
+            else:
+                location_str = _guess_country(text)
+                if location_str == "Various":
+                    location_str = "Location not specified"
+
             doc = {
                 "title": title,
                 "company": _company_from_url(url),
-                "location": loc,
-                "is_paid": bool(re.search(r"\b(paid|stipend|salary|competitive\s+pay)\b", text, re.I)),
-                "stipend": None,
-                "duration_weeks": None,
+                "location": location_str,
+                "country": norm["country"],
+                "city": norm["city"],
+                "workplace_type": norm["workplace_type"],
+                "is_paid": norm["is_paid"],
+                "has_stipend": norm["has_stipend"],
+                "stipend": norm["stipend"],
+                "stipend_currency": norm["stipend_currency"],
+                "duration_weeks": norm["duration_weeks"],
                 "deadline": deadline,
-                "field": _infer_field(text),
+                "field": norm["field"],
                 "apply_url": url,
                 "scraped_at": scraped_at,
                 "dedupe_key": dk,

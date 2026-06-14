@@ -311,7 +311,7 @@ def get_user_by_token(current_user: dict) -> dict:
         return get_super_admin_user()
     return r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
 
-from opportunity_scraper import persist_opportunities_from_chunks
+from opportunity_scraper import persist_opportunities_from_chunks, backfill_internship_normalization
 def _ensure_collection(name: str, validator: dict) -> None:
     try:
         mongo_db.create_collection(name, validator=validator)
@@ -551,8 +551,11 @@ def init_database_schema() -> None:
 
     internships_col.create_index([("deadline", ASCENDING)])
     internships_col.create_index([("location", ASCENDING), ("field", ASCENDING)])
+    internships_col.create_index([("workplace_type", ASCENDING), ("country", ASCENDING), ("city", ASCENDING)])
+    internships_col.create_index([("is_paid", ASCENDING), ("has_stipend", ASCENDING)])
     internships_col.create_index([("title", "text"), ("company", "text"), ("field", "text")])
     internships_col.create_index([("dedupe_key", ASCENDING)], unique=True, sparse=True)
+
 
     applications_col.create_index(
         [("user_id", ASCENDING), ("item_type", ASCENDING), ("item_id", ASCENDING)],
@@ -589,6 +592,7 @@ def init_database_schema() -> None:
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Auto-detect if user put a Gemini key inside ANTHROPIC_API_KEY
 if ANTHROPIC_API_KEY and not ANTHROPIC_API_KEY.startswith("sk-ant-") and ANTHROPIC_API_KEY != "yahan_apni_real_key_dalo":
@@ -596,8 +600,8 @@ if ANTHROPIC_API_KEY and not ANTHROPIC_API_KEY.startswith("sk-ant-") and ANTHROP
         GEMINI_API_KEY = ANTHROPIC_API_KEY
     ANTHROPIC_API_KEY = None
 
-if not ANTHROPIC_API_KEY and not GEMINI_API_KEY:
-    raise ValueError("Neither ANTHROPIC_API_KEY nor GEMINI_API_KEY is defined in .env")
+if not ANTHROPIC_API_KEY and not GEMINI_API_KEY and not OPENAI_API_KEY:
+    raise ValueError("Neither ANTHROPIC_API_KEY nor GEMINI_API_KEY nor OPENAI_API_KEY is defined in .env")
 
 # FIX: Corrected model identifier
 CLAUDE_MODEL = "claude-sonnet-4-5-20251001"
@@ -844,21 +848,6 @@ def seed_dummy_content() -> None:
                 "created_at": now - timedelta(hours=8),
                 "updated_at": None,
             },
-            {
-                "user_id": "seed_user_2",
-                "user_name": "Bilal Ahmed",
-                "user_handle": "bilalahmed",
-                "user_type": "student",
-                "user_avatar": "BA",
-                "text": "Tip for DAAD applicants: start language certification (TestDaF/DSH) early and factor in visa timelines — it saved me weeks of stress.",
-                "tag": "Tip",
-                "likes": 23,
-                "liked_by": [],
-                "comments": [],
-                "saved_by": [],
-                "created_at": now - timedelta(hours=4),
-                "updated_at": None,
-            },
         ])
 
     # Seed a test student login account for Ahmed if missing
@@ -930,24 +919,117 @@ def seed_dummy_content() -> None:
             },
         ])
 
-    if internships_col.count_documents({}) == 0:
+    # Re-seed if no internships or old-format entries missing workplace_type
+    if internships_col.count_documents({}) == 0 or internships_col.count_documents({"workplace_type": {"$exists": False}}) > 0:
+        internships_col.delete_many({"scraped_at": {"$exists": True}, "workplace_type": {"$exists": False}})
+        internships_col.delete_many({"company": "TechBridge"})  # Remove old single seed
         now = datetime.utcnow()
-        internships_col.insert_many([
+        seed_internships = [
             {
                 "title": "Software Engineering Intern",
-                "company": "TechBridge",
-                "location": "Remote",
+                "company": "TechBridge GmbH",
+                "location": "Berlin, Germany",
+                "country": "Germany",
+                "city": "Berlin",
+                "workplace_type": "onsite",
                 "is_paid": True,
-                "stipend": 60000,
+                "has_stipend": True,
+                "stipend": 1200.0,
+                "stipend_currency": "EUR",
                 "duration_weeks": 12,
                 "deadline": now + timedelta(days=45),
                 "field": "Software Engineering",
-                "apply_url": "https://example.com/internship/apply",
+                "apply_url": "https://example.com/techbridge-apply",
                 "scraped_at": now,
                 "created_at": now,
                 "updated_at": None,
-            }
-        ])
+            },
+            {
+                "title": "Data Science Research Intern",
+                "company": "DataVision Labs",
+                "location": "Remote",
+                "country": None,
+                "city": None,
+                "workplace_type": "remote",
+                "is_paid": True,
+                "has_stipend": True,
+                "stipend": 800.0,
+                "stipend_currency": "USD",
+                "duration_weeks": 16,
+                "deadline": now + timedelta(days=60),
+                "field": "Data Science",
+                "apply_url": "https://example.com/datavision-apply",
+                "scraped_at": now,
+                "created_at": now,
+                "updated_at": None,
+            },
+            {
+                "title": "Marketing & Communications Intern",
+                "company": "GlobalReach Media",
+                "location": "London, United Kingdom",
+                "country": "United Kingdom",
+                "city": "London",
+                "workplace_type": "hybrid",
+                "is_paid": False,
+                "has_stipend": False,
+                "stipend": None,
+                "stipend_currency": None,
+                "duration_weeks": 8,
+                "deadline": now + timedelta(days=30),
+                "field": "Marketing",
+                "apply_url": "https://example.com/globalreach-apply",
+                "scraped_at": now,
+                "created_at": now,
+                "updated_at": None,
+            },
+            {
+                "title": "AI / Machine Learning Intern",
+                "company": "InnovateMind",
+                "location": "Toronto, Canada",
+                "country": "Canada",
+                "city": "Toronto",
+                "workplace_type": "onsite",
+                "is_paid": True,
+                "has_stipend": True,
+                "stipend": 2000.0,
+                "stipend_currency": "CAD",
+                "duration_weeks": 24,
+                "deadline": now + timedelta(days=90),
+                "field": "Artificial Intelligence",
+                "apply_url": "https://example.com/innovatemind-apply",
+                "scraped_at": now,
+                "created_at": now,
+                "updated_at": None,
+            },
+            {
+                "title": "UX Design Intern",
+                "company": "Pixel Craft Studio",
+                "location": "Remote",
+                "country": None,
+                "city": None,
+                "workplace_type": "remote",
+                "is_paid": False,
+                "has_stipend": False,
+                "stipend": None,
+                "stipend_currency": None,
+                "duration_weeks": 10,
+                "deadline": now + timedelta(days=50),
+                "field": "UX Design",
+                "apply_url": "https://example.com/pixelcraft-apply",
+                "scraped_at": now,
+                "created_at": now,
+                "updated_at": None,
+            },
+        ]
+        internships_col.insert_many(seed_internships)
+
+    # ── Backfill normalization for any internships missing workplace_type ──
+    if internships_col is not None:
+        n = backfill_internship_normalization(internships_col)
+        if n:
+            print(f"[Backfill] Normalized {n} internship record(s) with workplace_type/country/city/stipend fields.")
+
+
 
 # ═══════════════════════════════════════════════════════
 # LIFESPAN
@@ -1172,14 +1254,20 @@ class ScholarshipRequest(BaseModel):
 class InternshipRequest(BaseModel):
     title: str
     company: str
-    location: str
+    location: str                            # human-readable e.g. "Berlin, Germany"
+    country: Optional[str] = None            # normalized country e.g. "Germany"
+    city: Optional[str] = None               # normalized city e.g. "Berlin"
+    workplace_type: str = "onsite"           # "remote" | "onsite" | "hybrid"
     is_paid: bool = False
-    stipend: Optional[float] = None
+    has_stipend: bool = False
+    stipend: Optional[float] = None          # monthly stipend in PKR/USD
+    stipend_currency: Optional[str] = "USD"
     duration_weeks: Optional[int] = None
     deadline: datetime
     field: str
     apply_url: str
     scraped_at: Optional[datetime] = None
+
 
 class ApplicationRequest(BaseModel):
     item_id: str
@@ -1408,7 +1496,33 @@ def _generate_answer(
     else:
         system = _build_general_assistant_system(bot_type, user_profile, user_name)
 
-    if GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo"):
+    if OPENAI_API_KEY:
+        import httpx
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }
+        openai_messages = []
+        if system:
+            openai_messages.append({"role": "system", "content": system})
+        for msg in messages:
+            openai_messages.append({"role": msg["role"], "content": msg["content"]})
+            
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": openai_messages,
+            "max_tokens": 1024
+        }
+        with httpx.Client(timeout=30.0) as client:
+            r = client.post(url, json=payload, headers=headers)
+            r.raise_for_status()
+            res_json = r.json()
+            try:
+                return res_json["choices"][0]["message"]["content"].strip()
+            except (KeyError, IndexError):
+                raise ValueError(f"Unexpected response structure from OpenAI API: {res_json}")
+    elif GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo"):
         import httpx
         gemini_contents = []
         for msg in messages:
@@ -1440,7 +1554,7 @@ def _generate_answer(
                 raise ValueError(f"Unexpected response structure from Gemini API: {res_json}")
     else:
         if not claude_client:
-            raise ValueError("Claude client is not initialized and no GEMINI_API_KEY is configured.")
+            raise ValueError("Claude client is not initialized and no GEMINI_API_KEY/OPENAI_API_KEY is configured.")
         response = claude_client.messages.create(
             model=CLAUDE_MODEL, max_tokens=1024, system=system, messages=messages,
         )
@@ -1452,12 +1566,21 @@ def _generate_answer(
 
 @app.get("/")
 def root():
-    provider = "Gemini" if GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo") else "Claude"
+    if OPENAI_API_KEY:
+        provider = "OpenAI"
+        model = "gpt-4o-mini"
+    elif GEMINI_API_KEY and (not claude_client or not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "yahan_apni_real_key_dalo"):
+        provider = "Gemini"
+        model = "gemini-2.5-flash"
+    else:
+        provider = "Claude"
+        model = CLAUDE_MODEL
+        
     return {
         "status": "running",
         "chunks_in_db": vector_store.count(),
         "provider": provider,
-        "model": "gemini-2.5-flash" if provider == "Gemini" else CLAUDE_MODEL
+        "model": model
     }
 
 @app.get("/status")
@@ -1572,10 +1695,30 @@ def chat(payload: ChatRequest, current_user: dict = Depends(get_current_user)):
         answer = _generate_answer(question, history, contexts, payload.bot_type, db_scholarships, db_internships, db_stats, user_profile, user_name)
     except Exception as e:
         print(f"[ChatError] Language model call failed: {e}")
-        answer = (
-            "The AI assistant cannot reach the language model right now. Please try again shortly. "
-            "If your project uses ANTHROPIC_API_KEY or GEMINI_API_KEY in `backend/.env`, confirm it is active and correct."
-        )
+        # Build smart fallback response using local DB records
+        parts = []
+        parts.append(f"Hello {user_name}! The AI assistant cannot reach the language model right now because the API key in the environment is invalid or blocked (verify your API key in `backend/.env`).")
+        parts.append("\nHowever, I ran a direct database query and found these matching opportunities for your question:")
+        
+        has_results = False
+        if db_scholarships:
+            has_results = True
+            parts.append("\n🎓 **Scholarships:**")
+            for s in db_scholarships:
+                parts.append(f"- **{s.get('title')}** ({s.get('country', 'International')}) - [Apply / Details]({s.get('apply_url') or s.get('source_url')})")
+                
+        if db_internships:
+            has_results = True
+            parts.append("\n💼 **Internships:**")
+            for i in db_internships:
+                wtype = (i.get('workplace_type') or 'onsite').upper()
+                stipend_str = f"({i.get('stipend_currency')} {i.get('stipend')}/mo)" if i.get('has_stipend') else "Unpaid"
+                parts.append(f"- **{i.get('title')}** at {i.get('company')} ({i.get('location') or wtype}) - {stipend_str} - [Apply / Details]({i.get('apply_url')})")
+                
+        if not has_results:
+            parts.append(f"\nNo direct matches were found in the database. Please try searching with a different keyword like 'Germany', 'funded', or 'Engineering'.")
+            
+        answer = "\n".join(parts)
         sources = []
         warning = "ai_upstream"
 
@@ -1696,18 +1839,102 @@ def get_degree_attestation_guide():
 
 
 @app.get("/recommendations/matches")
-def recommendations_matches(limit: int = 100, current_user: dict = Depends(get_current_user)):
+def recommendations_matches(
+    limit: int = 100,
+    # ── Internship-specific filter params ──
+    workplace_type: Optional[str] = None,    # "remote" | "hybrid" | "onsite"
+    country: Optional[str] = None,           # e.g. "Germany"
+    city: Optional[str] = None,              # e.g. "Berlin"
+    is_paid: Optional[bool] = None,          # true | false
+    has_stipend: Optional[bool] = None,      # true | false
+    duration_min: Optional[int] = None,      # minimum weeks
+    duration_max: Optional[int] = None,      # maximum weeks
+    field: Optional[str] = None,             # e.g. "Computer Science / IT"
+    current_user: dict = Depends(get_current_user),
+):
     user = r_users_col.find_one({"_id": _safe_user_id(current_user["sub"])})
     if not user:
         raise HTTPException(404, "User not found")
     profile = user.get("profile") or {}
     now = datetime.utcnow()
+
+    # ── Build scholarship query (no extra filters here) ──
+    sch_q: dict = {"deadline": {"$gte": now}}
     scholarships = list(
-        r_scholarships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(100)
+        r_scholarships_col.find(sch_q).sort("deadline", 1).limit(100)
     )
+
+    # ── Build internship query with server-side filtering ──
+    and_clauses = [{"deadline": {"$gte": now}}]
+
+    if workplace_type:
+        wt_list = [wt.lower().strip() for wt in workplace_type.split(",") if wt.strip()]
+        if wt_list:
+            and_clauses.append({"workplace_type": {"$in": wt_list}})
+
+    if country:
+        c_list = [c.strip() for c in country.split(",") if c.strip()]
+        if c_list:
+            has_remote = any(c.lower() == "remote" for c in c_list)
+            other_countries = [c for c in c_list if c.lower() != "remote"]
+            
+            or_clauses = []
+            if has_remote:
+                or_clauses.append({"workplace_type": "remote"})
+            for c in other_countries:
+                or_clauses.append({"country": {"$regex": f"^{re.escape(c)}$", "$options": "i"}})
+            
+            if or_clauses:
+                if len(or_clauses) == 1:
+                    and_clauses.append(or_clauses[0])
+                else:
+                    and_clauses.append({"$or": or_clauses})
+
+    if city:
+        city_list = [c.strip() for c in city.split(",") if c.strip()]
+        if city_list:
+            or_clauses = []
+            for c in city_list:
+                or_clauses.append({"city": {"$regex": f"^{re.escape(c)}$", "$options": "i"}})
+            if or_clauses:
+                if len(or_clauses) == 1:
+                    and_clauses.append(or_clauses[0])
+                else:
+                    and_clauses.append({"$or": or_clauses})
+
+    if is_paid is not None:
+        and_clauses.append({"is_paid": is_paid})
+
+    if has_stipend is not None:
+        and_clauses.append({"has_stipend": has_stipend})
+
+    if duration_min is not None or duration_max is not None:
+        dur_clause: dict = {}
+        if duration_min is not None:
+            dur_clause["$gte"] = duration_min
+        if duration_max is not None:
+            dur_clause["$lte"] = duration_max
+        and_clauses.append({"duration_weeks": dur_clause})
+
+    if field:
+        field_list = [f.strip() for f in field.split(",") if f.strip()]
+        if field_list:
+            or_clauses = []
+            for f in field_list:
+                or_clauses.append({"field": {"$regex": f"^{re.escape(f)}$", "$options": "i"}})
+            if or_clauses:
+                if len(or_clauses) == 1:
+                    and_clauses.append(or_clauses[0])
+                else:
+                    and_clauses.append({"$or": or_clauses})
+
+    int_q = {"$and": and_clauses} if len(and_clauses) > 1 else and_clauses[0]
+
     internships = list(
-        r_internships_col.find({"deadline": {"$gte": now}}).sort("deadline", 1).limit(100)
+        r_internships_col.find(int_q).sort("deadline", 1).limit(200)
     )
+
+    # ── Rank by profile relevance ──
     ranked_s = sorted(
         scholarships,
         key=lambda d: _score_doc_for_profile(d, profile, "scholarship"),
@@ -1717,11 +1944,13 @@ def recommendations_matches(limit: int = 100, current_user: dict = Depends(get_c
         internships,
         key=lambda d: _score_doc_for_profile(d, profile, "internship"),
         reverse=True,
-    )
+    )[:limit]
+
     for lst in (ranked_s, ranked_i):
         for d in lst:
             d["_id"] = str(d["_id"])
             _serialize(d)
+
     return {
         "profile_summary": {
             "major": profile.get("major"),
@@ -1732,6 +1961,7 @@ def recommendations_matches(limit: int = 100, current_user: dict = Depends(get_c
         "scholarships": ranked_s,
         "internships": ranked_i,
     }
+
 
 
 @app.post("/upload/image")
@@ -2528,8 +2758,11 @@ def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
     posts_col.delete_many({"user_id": user_id})
     job_postings_col.delete_many({"recruiter_id": user_id})
     messages_col.delete_many({"user_id": user_id})
-    dm_messages_col.delete_many({"sender_id": user_id})
+    dm_messages_col.delete_many({"$or": [{"sender_id": user_id}, {"recipient_id": user_id}]})
     dm_threads_col.delete_many({"participants": user_id})
+    applications_col.delete_many({"user_id": user_id})
+    connections_col.delete_many({"$or": [{"user1_id": user_id}, {"user2_id": user_id}]})
+    notifications_col.delete_many({"$or": [{"user_id": user_id}, {"sender_id": user_id}]})
     # Remove from other users' followers/following lists
     users_col.update_many({}, {"$pull": {"followers": user_id, "following": user_id}})
     # Remove from saved_posts on posts
@@ -3180,8 +3413,13 @@ def create_internship(data: InternshipRequest, current_user: dict = Depends(get_
         "title": data.title,
         "company": data.company,
         "location": data.location,
+        "country": data.country,
+        "city": data.city,
+        "workplace_type": (data.workplace_type or "onsite").lower(),
         "is_paid": data.is_paid,
+        "has_stipend": data.has_stipend,
         "stipend": data.stipend,
+        "stipend_currency": data.stipend_currency or "USD",
         "duration_weeks": data.duration_weeks,
         "deadline": data.deadline,
         "field": data.field,
@@ -3237,8 +3475,13 @@ def update_internship(
         "title": data.title,
         "company": data.company,
         "location": data.location,
+        "country": data.country,
+        "city": data.city,
+        "workplace_type": (data.workplace_type or "onsite").lower(),
         "is_paid": data.is_paid,
+        "has_stipend": data.has_stipend,
         "stipend": data.stipend,
+        "stipend_currency": data.stipend_currency or "USD",
         "duration_weeks": data.duration_weeks,
         "deadline": data.deadline,
         "field": data.field,

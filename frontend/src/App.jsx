@@ -376,11 +376,13 @@ export function MiniPost({ post, onUnsave }) {
           {tag && <span className="tag" style={{ marginTop: 6, display: "inline-block" }}>{tag}</span>}
           <p style={{ fontSize: 14, lineHeight: 1.55, marginTop: 10, whiteSpace: "pre-wrap", color: "var(--text)" }}>{text}</p>
           {img && (
-            <img
-              src={img}
-              alt=""
-              style={{ marginTop: 10, maxWidth: "100%", borderRadius: 12, border: "1px solid var(--border)" }}
-            />
+            <div style={{ marginTop: 10, width: "100%", display: "flex", justifyContent: "center", borderRadius: 12, border: "1px solid var(--border)", background: "var(--white-solid)", overflow: "hidden" }}>
+              <img
+                src={img}
+                alt=""
+                style={{ width: "100%", height: "auto", maxHeight: "400px", objectFit: "contain", display: "block" }}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -695,7 +697,7 @@ export function LandingPage({ onChoose }) {
       }}>
         © 2026 SCHLR Scholarship Community.
         <a 
-          href="https://www.instagram.com/alam_mahad" 
+          href="https://www.instagram.com/schlr_ai" 
           target="_blank" 
           rel="noopener noreferrer"
           className="instagram-link"
@@ -711,7 +713,7 @@ export function LandingPage({ onChoose }) {
           }}
         >
           <InstagramIcon />
-          <span>@alam_mahad</span>
+          <span>@schlr_ai</span>
         </a>
       </footer>
     </div>
@@ -941,7 +943,7 @@ export function AuthPage({ onLogin, onAuthToken, initialMode = "login", onBack }
               </div>
             </div>
 
-            <button disabled={loading} onClick={handleSubmit} className="btn-primary btn-full" style={{ marginTop: 12 }}>
+            <button disabled={loading} onClick={handleSubmit} className="btn-primary btn-full" style={{ marginTop: 12, borderRadius: 9999, fontWeight: 700, padding: "12px 24px" }}>
               {loading ? "Signing In..." : "Sign In"}
             </button>
           </>
@@ -987,7 +989,7 @@ export function AuthPage({ onLogin, onAuthToken, initialMode = "login", onBack }
               </div>
             ))}
 
-            <button disabled={loading} onClick={handleSubmit} className="btn-primary" style={{ width: "100%", marginTop: 12 }}>
+            <button disabled={loading} onClick={handleSubmit} className="btn-primary" style={{ width: "100%", marginTop: 12, borderRadius: 9999, fontWeight: 700, padding: "12px 24px" }}>
               Continue →
             </button>
           </>
@@ -1116,8 +1118,8 @@ export function AuthPage({ onLogin, onAuthToken, initialMode = "login", onBack }
             </div>
             
             <div style={{ display: "flex", gap: 10 }}>
-              <button type="button" onClick={() => setStep(1)} className="btn-ghost" style={{ flex: 1 }}>← Back</button>
-              <button type="button" disabled={loading} onClick={handleSubmit} className="btn-primary" style={{ flex: 2 }}>
+              <button type="button" onClick={() => setStep(1)} className="btn-ghost" style={{ flex: 1, borderRadius: 9999, padding: "12px 24px" }}>← Back</button>
+              <button type="button" disabled={loading} onClick={handleSubmit} className="btn-primary" style={{ flex: 2, borderRadius: 9999, fontWeight: 700, padding: "12px 24px" }}>
                 {loading ? "Creating Account..." : "Create Account 🎉"}
               </button>
             </div>
@@ -1635,10 +1637,14 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
                       post.avatar || initials(post.user)
                     )}
                   </div>
-                  <div onClick={() => post.user_id && onViewUserProfile?.(post.user_id)} style={{ cursor: post.user_id ? "pointer" : "default" }}>
-                    <div style={{ fontWeight: 600, color: "var(--brown4)", fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                  <div onClick={() => post.user_id && onViewUserProfile?.(post.user_id)} style={{ cursor: post.user_id ? "pointer" : "default", display: "flex", flexDirection: "column", gap: 2 }}>
+                    <div style={{ fontWeight: 600, color: "var(--brown4)", fontSize: 15, display: "flex", alignItems: "center", gap: 6 }}>
                       {post.user}
-                      {post.type === "recruiter" && <span className="tag" style={{ background: "var(--brown4)", color: "#fff", fontSize: 9 }}>RECRUITER</span>}
+                      {post.type === "recruiter" && (
+                        <span style={{ background: "#08306b", color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.5px", padding: "2px 8px", borderRadius: 9999, textTransform: "uppercase", display: "inline-flex", alignItems: "center" }}>
+                          RECRUITER
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--muted)" }}>@{post.handle} · {post.time}</div>
                   </div>
@@ -1654,7 +1660,7 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
                       🗑 Delete
                     </button>
                   )}
-                  <span className="tag" style={{ background: post.tagBg, color: post.tagColor }}>{post.tag}</span>
+                  <span className="tag" style={{ background: post.tagBg, color: post.tagColor, fontSize: 12, padding: "5px 14px", borderRadius: 9999 }}>{post.tag}</span>
                 </div>
               </div>
 
@@ -1666,7 +1672,9 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
                 </div>
               )}
               {post.imageUrl && (
-                <img src={post.imageUrl} alt="" style={{ marginTop: 12, width: "100%", maxHeight: 420, objectFit: "cover", borderRadius: 12, border: "1px solid var(--border)" }} />
+                <div style={{ marginTop: 12, width: "100%", display: "flex", justifyContent: "center", borderRadius: 12, border: "1px solid var(--border)", background: "var(--white-solid)", overflow: "hidden" }}>
+                  <img src={post.imageUrl} alt="" style={{ width: "100%", height: "auto", maxHeight: "600px", objectFit: "contain", display: "block" }} />
+                </div>
               )}
 
               {user.userType === "student" && post.jobPostingId && (
@@ -1690,14 +1698,53 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
               )}
 
               <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
-                <button type="button" onClick={() => likePost(post.id)} className="btn-ghost" style={{ padding: "8px 14px", color: post.liked ? "var(--brown3)" : "var(--muted)" }}>
-                  <span>{post.liked ? "♥" : "♡"}</span> {post.likes}
+                <button 
+                  type="button" 
+                  onClick={() => likePost(post.id)} 
+                  className="btn-post-action"
+                  style={post.liked ? { color: "#E0245E", borderColor: "rgba(224, 36, 94, 0.2)", background: "rgba(224, 36, 94, 0.05)" } : {}}
+                >
+                  {post.liked ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="#E0245E" stroke="#E0245E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                  )}
+                  <span>{post.likes}</span>
                 </button>
-                <button type="button" onClick={() => setOpenComments(openComments === post.id ? null : post.id)} className="btn-ghost" style={{ padding: "8px 14px" }}>
-                  <span>💬</span> {post.commentList?.length || 0}
+                <button 
+                  type="button" 
+                  onClick={() => setOpenComments(openComments === post.id ? null : post.id)} 
+                  className="btn-post-action"
+                  style={openComments === post.id ? { color: "var(--brown3)", borderColor: "rgba(66, 146, 198, 0.3)", background: "rgba(66, 146, 198, 0.08)" } : {}}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                  </svg>
+                  <span>{post.commentList?.length || 0}</span>
                 </button>
-                <button type="button" onClick={() => savePost(post.id)} className="btn-ghost" style={{ padding: "8px 14px", color: post.saved ? "var(--brown3)" : "var(--muted)", marginLeft: "auto" }}>
-                  <span>{post.saved ? "🔖" : "🏷"}</span> {post.saved ? "Saved" : "Save"}
+                <button 
+                  type="button" 
+                  onClick={() => savePost(post.id)} 
+                  className="btn-post-action"
+                  style={{ 
+                    marginLeft: "auto", 
+                    ...(post.saved ? { color: "var(--brown3)", borderColor: "rgba(66, 146, 198, 0.3)", background: "rgba(66, 146, 198, 0.08)" } : {}) 
+                  }}
+                >
+                  {post.saved ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  )}
+                  <span>{post.saved ? "Saved" : "Save"}</span>
                 </button>
               </div>
 
@@ -1748,6 +1795,12 @@ export function StudentJobsSection({ user, token }) {
   const [results, setResults] = useState({});
   const [busyId, setBusyId] = useState(null);
   const [savedMap, setSavedMap] = useState({});
+
+  // ── Filter state ──
+  const [searchQuery, setJobSearchQuery] = useState("");
+  const [filterEmpType, setFilterEmpType] = useState("all");   // "all" | "Internship" | "Full-time" | "Part-time" | "Contract"
+  const [filterLocType, setFilterLocType] = useState("all");   // "all" | "Remote" | "Onsite" | "Hybrid"
+  const [filterField, setFilterField] = useState("all");
 
   const auth = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -1822,6 +1875,28 @@ export function StudentJobsSection({ user, token }) {
     load();
   }, [load]);
 
+  // Derived: unique fields from loaded jobs
+  const jobFields = useMemo(() => {
+    const s = new Set();
+    items.forEach(j => { if (j.field) s.add(j.field); });
+    return Array.from(s).sort();
+  }, [items]);
+
+  // Filtered list
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter(j => {
+      if (q && !((j.title || "").toLowerCase().includes(q) ||
+                 (j.company_name || "").toLowerCase().includes(q) ||
+                 (j.description || "").toLowerCase().includes(q) ||
+                 (j.skills_keywords || []).some(s => s.toLowerCase().includes(q)))) return false;
+      if (filterEmpType !== "all" && (j.employment_type || "").toLowerCase() !== filterEmpType.toLowerCase()) return false;
+      if (filterLocType !== "all" && (j.location_type || "").toLowerCase() !== filterLocType.toLowerCase()) return false;
+      if (filterField !== "all" && (j.field || "").toLowerCase() !== filterField.toLowerCase()) return false;
+      return true;
+    });
+  }, [items, searchQuery, filterEmpType, filterLocType, filterField]);
+
   const uploadCvAndApply = async (jobId) => {
     setBusyId(jobId);
     setMsg((m) => ({ ...m, [jobId]: "" }));
@@ -1886,56 +1961,128 @@ export function StudentJobsSection({ user, token }) {
     }
   };
 
-  if (loading) {
-    return <GooeyLoader size="medium" text="Loading opportunities..." />;
-  }
-
   return (
     <div style={{ maxWidth: 880, margin: "0 auto" }}>
       <h2>Jobs & internships from recruiters</h2>
-      <p style={{ color: "var(--muted)", marginBottom: 24 }}>
+      <p style={{ color: "var(--muted)", marginBottom: 16 }}>
         Apply with your CV (PDF). You can store a default résumé on your profile, or upload a new file when you apply.
       </p>
       {error && <div style={{ padding: 14, borderRadius: 10, background: "var(--cream3)", color: "var(--brown4)", marginBottom: 16 }}>{error}</div>}
-      
-      {items.length === 0 ? (
+
+      {/* ─── Filter Bar ─── */}
+      {!loading && (
+        <div className="glass-panel animate-fade-in" style={{ padding: "14px 18px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", position: "relative", zIndex: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brown4)" }}>🔍 Filter Jobs:</div>
+
+          {/* Text search */}
+          <input
+            type="text"
+            placeholder="Search by title, company, skill…"
+            value={searchQuery}
+            onChange={e => setJobSearchQuery(e.target.value)}
+            className="glass-input"
+            style={{ flex: 1, minWidth: 200, padding: "8px 14px", fontSize: 13, borderRadius: 99 }}
+          />
+
+          {/* Employment Type */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[["all", "All Types"], ["Internship", "Internship"], ["Full-time", "Full-time"], ["Part-time", "Part-time"], ["Contract", "Contract"]].map(([v, lbl]) => (
+              <button key={v} type="button" onClick={() => setFilterEmpType(v)}
+                style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer", border: filterEmpType === v ? "none" : "1px solid var(--border)",
+                  background: filterEmpType === v ? "var(--brown3)" : "rgba(255,255,255,0.5)",
+                  color: filterEmpType === v ? "#fff" : "var(--muted)", transition: "all 0.2s" }}>{lbl}</button>
+            ))}
+          </div>
+
+          {/* Location Type */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[["all", "Any Location"], ["Remote", "🌐 Remote"], ["Onsite", "🏢 Onsite"], ["Hybrid", "⚡ Hybrid"]].map(([v, lbl]) => (
+              <button key={v} type="button" onClick={() => setFilterLocType(v)}
+                style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer", border: filterLocType === v ? "none" : "1px solid var(--border)",
+                  background: filterLocType === v ? "#7c3aed" : "rgba(255,255,255,0.5)",
+                  color: filterLocType === v ? "#fff" : "var(--muted)", transition: "all 0.2s" }}>{lbl}</button>
+            ))}
+          </div>
+
+          {/* Field */}
+          {jobFields.length > 0 && (
+            <select value={filterField} onChange={e => setFilterField(e.target.value)}
+              className="glass-select" style={{ padding: "7px 12px", borderRadius: 99, fontSize: 12, minWidth: 130 }}>
+              <option value="all">All Fields 💼</option>
+              {jobFields.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          )}
+
+          {/* Reset */}
+          {(searchQuery || filterEmpType !== "all" || filterLocType !== "all" || filterField !== "all") && (
+            <button type="button" onClick={() => { setJobSearchQuery(""); setFilterEmpType("all"); setFilterLocType("all"); setFilterField("all"); }}
+              style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: "1px dashed var(--border)", color: "var(--muted)" }}>
+              ✕ Reset
+            </button>
+          )}
+        </div>
+      )}
+
+      {loading ? (
+        <GooeyLoader size="medium" text="Loading opportunities..." />
+      ) : filteredItems.length === 0 ? (
         <div className="glass-panel" style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-          No active postings yet. Check back soon.
+          {items.length === 0 ? "No active postings yet. Check back soon." : "No jobs match your filters."}
         </div>
       ) : (
-        items.map((j) => (
+        filteredItems.map((j) => {
+          const locType = (j.location_type || "Hybrid").toLowerCase();
+          const ltColor = locType === "remote" ? "#16a34a" : locType === "hybrid" ? "#7c3aed" : "#ea580c";
+          const ltLabel = locType === "remote" ? "🌐 Remote" : locType === "hybrid" ? "⚡ Hybrid" : "🏢 Onsite";
+          return (
           <div key={j._id} className="glass-panel" style={{ padding: 22, marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "var(--brown3)", textTransform: "uppercase" }}>
-              {j.employment_type || "Role"} · {j.location_type || "On-site"} {j.location ? ` · ${j.location}` : ""}
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: "var(--cream2)", color: "var(--brown3)", textTransform: "uppercase" }}>
+                    {j.employment_type || "Role"}
+                  </span>
+                  {j.field && (
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: "#eff6ff", color: "#1d4ed8" }}>
+                      {j.field}
+                    </span>
+                  )}
+                </div>
+                <h3 style={{ fontSize: 20, color: "var(--brown4)", margin: 0, marginBottom: 4 }}>{j.title}</h3>
+                <div style={{ fontSize: 14, color: "var(--muted)" }}>{j.company_name || "Company"}{j.location ? ` · ${j.location}` : ""}</div>
+              </div>
+              <span style={{ padding: "4px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${ltColor}18`, color: ltColor, border: `1px solid ${ltColor}40`, whiteSpace: "nowrap" }}>
+                {ltLabel}
+              </span>
             </div>
-            <h3 style={{ fontSize: 22, color: "var(--brown4)", marginTop: 10, marginBottom: 4 }}>{j.title}</h3>
-            <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 14 }}>{j.company_name || "Company"}</div>
-            <p style={{ fontSize: 15, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{j.description}</p>
-            
+
+            <p style={{ fontSize: 15, lineHeight: 1.65, whiteSpace: "pre-wrap", marginTop: 14 }}>{j.description}</p>
+
             {(j.skills_keywords || []).length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                {j.skills_keywords.map((s) => (<span key={s} className="tag">{s}</span>))}
+                {j.skills_keywords.map((s) => <span key={s} className="tag">{s}</span>)}
               </div>
             )}
-            
-            <div style={{ fontSize: 13, marginTop: 16, color: "var(--brown3)" }}>
+
+            <div style={{ fontSize: 13, marginTop: 14, color: "var(--brown3)" }}>
               <strong>How to apply (direct):</strong> <span style={{ wordBreak: "break-all" }}>{j.apply_how}</span>
             </div>
-            
-            <div style={{ marginTop: 18, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-              <button type="button" disabled={busyId === j._id} className="btn-primary" onClick={() => applyWithSavedCv(j._id)}>
+
+            <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <button type="button" disabled={busyId === j._id} className="btn-primary" style={{ borderRadius: 99 }} onClick={() => applyWithSavedCv(j._id)}>
                 {busyId === j._id ? "Submitting…" : "Submit application (CV)"}
               </button>
-              <button type="button" className="btn-ghost" disabled={busyId === j._id} onClick={() => uploadCvAndApply(j._id)}>
-                Upload different CV & apply
+              <button type="button" className="btn-ghost" disabled={busyId === j._id} style={{ borderRadius: 99 }} onClick={() => uploadCvAndApply(j._id)}>
+                Upload different CV &amp; apply
               </button>
-              <button 
-                type="button" 
-                onClick={() => toggleSave(j._id, "job_posting")} 
-                className="btn-ghost" 
-                style={{ padding: "8px 16px", color: savedMap[j._id] ? "var(--brown3)" : "var(--muted)", marginLeft: "auto", borderRadius: 8 }}
+              <button
+                type="button"
+                onClick={() => toggleSave(j._id, "job_posting")}
+                className="btn-ghost"
+                style={{ padding: "8px 16px", color: savedMap[j._id] ? "var(--brown3)" : "var(--muted)", marginLeft: "auto", borderRadius: 99 }}
               >
-                {savedMap[j._id] ? "Saved" : "Save"}
+                {savedMap[j._id] ? "✓ Saved" : "Save"}
               </button>
             </div>
 
@@ -1961,7 +2108,8 @@ export function StudentJobsSection({ user, token }) {
               </div>
             )}
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -1970,6 +2118,7 @@ export function StudentJobsSection({ user, token }) {
 // ==========================================
 // 7. MATCHES SECTION
 // ==========================================
+
 
 export function MultiSelectDropdown({ label, options, selected, onChange, placeholder = "Select options" }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -2150,6 +2299,13 @@ export function MatchesSection({ token, user }) {
 
   const [selectedCountries, setSelectedCountries] = useState(initialCountry ? [initialCountry] : []);
   const [selectedDegrees, setSelectedDegrees] = useState(initialDegree ? [initialDegree] : []);
+  const [activeTab, setActiveTab] = useState("scholarships");
+  const [selectedFields, setSelectedFields] = useState([]);
+  const [selectedWorkplaceTypes, setSelectedWorkplaceTypes] = useState([]);
+  const [paidFilter, setPaidFilter] = useState("all");   // "all" | "paid" | "unpaid"
+  const [stipendFilter, setStipendFilter] = useState("all"); // "all" | "has_stipend"
+  const [durationFilter, setDurationFilter] = useState("all"); // "all" | "under_12" | "12_24" | "over_24"
+  const [selectedCities, setSelectedCities] = useState([]);
 
   const loadSaved = useCallback(async () => {
     try {
@@ -2204,11 +2360,42 @@ export function MatchesSection({ token, user }) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const handler = setTimeout(async () => {
       setLoading(true);
       setError("");
       try {
-        const r = await fetch(`${API_BASE}/recommendations/matches?limit=100`, {
+        const params = new URLSearchParams();
+        params.append("limit", "100");
+        if (selectedCountries.length > 0) {
+          params.append("country", selectedCountries.join(","));
+        }
+        if (selectedFields.length > 0) {
+          params.append("field", selectedFields.join(","));
+        }
+        if (selectedWorkplaceTypes.length > 0) {
+          params.append("workplace_type", selectedWorkplaceTypes.join(","));
+        }
+        if (selectedCities.length > 0) {
+          params.append("city", selectedCities.join(","));
+        }
+        if (paidFilter === "paid") {
+          params.append("is_paid", "true");
+        } else if (paidFilter === "unpaid") {
+          params.append("is_paid", "false");
+        }
+        if (stipendFilter === "has_stipend") {
+          params.append("has_stipend", "true");
+        }
+        if (durationFilter === "under_12") {
+          params.append("duration_max", "11");
+        } else if (durationFilter === "12_24") {
+          params.append("duration_min", "12");
+          params.append("duration_max", "24");
+        } else if (durationFilter === "over_24") {
+          params.append("duration_min", "25");
+        }
+
+        const r = await fetch(`${API_BASE}/recommendations/matches?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const d = await r.json().catch(() => ({}));
@@ -2219,9 +2406,22 @@ export function MatchesSection({ token, user }) {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [token]);
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handler);
+    };
+  }, [
+    token,
+    selectedCountries,
+    selectedFields,
+    selectedWorkplaceTypes,
+    selectedCities,
+    paidFilter,
+    stipendFilter,
+    durationFilter
+  ]);
 
   const filteredScholarships = useMemo(() => {
     if (!data?.scholarships) return [];
@@ -2259,49 +2459,73 @@ export function MatchesSection({ token, user }) {
     });
   }, [data?.scholarships, selectedCountries, selectedDegrees]);
 
+  const internshipFields = useMemo(() => {
+    if (!data?.internships) return [];
+    const fields = new Set();
+    data.internships.forEach(i => { if (i.field) fields.add(i.field); });
+    return Array.from(fields).sort();
+  }, [data?.internships]);
+
+  // Dynamically build available cities based on selected countries
+  const availableCities = useMemo(() => {
+    if (!data?.internships) return [];
+    const cities = new Set();
+    data.internships.forEach(i => {
+      if (!i.city) return;
+      if (selectedCountries.length === 0) {
+        cities.add(i.city);
+      } else if (selectedCountries.some(c => (i.country || "").toLowerCase() === c.toLowerCase())) {
+        cities.add(i.city);
+      }
+    });
+    return Array.from(cities).sort();
+  }, [data?.internships, selectedCountries]);
+
   const filteredInternships = useMemo(() => {
     if (!data?.internships) return [];
     return data.internships.filter(i => {
+      // --- Country filter (supports remote as special case) ---
       if (selectedCountries.length > 0) {
-        const loc = (i.location || "").toLowerCase();
+        const wtype = (i.workplace_type || "").toLowerCase();
+        const iCountry = (i.country || "").toLowerCase();
         const matchesCountry = selectedCountries.some(c => {
-          if (c.toLowerCase() === "remote") return loc.includes("remote");
-          return loc.includes(c.toLowerCase()) || loc.includes("remote");
+          if (c.toLowerCase() === "remote") return wtype === "remote";
+          return iCountry === c.toLowerCase();
         });
         if (!matchesCountry) return false;
       }
-      if (selectedDegrees.length > 0) {
-        const hay = ((i.title || "") + " " + (i.field || "") + " " + (i.description_excerpt || "")).toLowerCase();
-        const matchesDegree = selectedDegrees.some(d => {
-          if (d === "Bachelors") {
-            if ((hay.includes("master") || hay.includes("phd") || hay.includes("ph.d")) && 
-                (!hay.includes("bachelor") && !hay.includes("undergraduate") && !hay.includes("bs") && !hay.includes("bsc"))) {
-              return false;
-            }
-            return true;
-          }
-          if (d === "Masters / MPhil") {
-            if (hay.includes("master") || hay.includes("postgraduate") || hay.includes("ms") || hay.includes("msc") || hay.includes("m.phil")) {
-              return true;
-            }
-            return !hay.includes("bachelor") && !hay.includes("phd") && !hay.includes("ph.d");
-          }
-          if (d === "PhD / Doctoral") {
-            if (hay.includes("phd") || hay.includes("doctoral") || hay.includes("ph.d") || hay.includes("doctor")) {
-              return true;
-            }
-            return !hay.includes("bachelor") && !hay.includes("master") && !hay.includes("bs");
-          }
-          if (d === "Postdoctoral") {
-            return hay.includes("postdoc") || hay.includes("postdoctoral");
-          }
-          return true;
-        });
-        if (!matchesDegree) return false;
+      // --- City filter ---
+      if (selectedCities.length > 0) {
+        const iCity = (i.city || "").toLowerCase();
+        const matchesCity = selectedCities.some(c => iCity === c.toLowerCase());
+        if (!matchesCity) return false;
+      }
+      // --- Field filter ---
+      if (selectedFields.length > 0) {
+        const fld = (i.field || "").toLowerCase();
+        const matchesField = selectedFields.some(f => fld.includes(f.toLowerCase()));
+        if (!matchesField) return false;
+      }
+      // --- Workplace type filter ---
+      if (selectedWorkplaceTypes.length > 0) {
+        const wtype = (i.workplace_type || "onsite").toLowerCase();
+        if (!selectedWorkplaceTypes.map(w => w.toLowerCase()).includes(wtype)) return false;
+      }
+      // --- Paid / Unpaid filter ---
+      if (paidFilter === "paid" && !i.is_paid) return false;
+      if (paidFilter === "unpaid" && i.is_paid) return false;
+      // --- Stipend filter ---
+      if (stipendFilter === "has_stipend" && !i.has_stipend) return false;
+      // --- Duration filter ---
+      if (durationFilter !== "all") {
+        const dw = i.duration_weeks || 0;
+        if (durationFilter === "under_12" && dw >= 12) return false;
+        if (durationFilter === "12_24" && (dw < 12 || dw > 24)) return false;
+        if (durationFilter === "over_24" && dw <= 24) return false;
       }
       return true;
     });
-  }, [data?.internships, selectedCountries, selectedDegrees]);
+  }, [data?.internships, selectedCountries, selectedCities, selectedFields, selectedWorkplaceTypes, paidFilter, stipendFilter, durationFilter]);
 
   const cardSch = (s) => (
     <div key={s._id} className="glass-panel" style={{ padding: 18, marginBottom: 14 }}>
@@ -2329,28 +2553,73 @@ export function MatchesSection({ token, user }) {
     </div>
   );
 
-  const cardInt = (i) => (
-    <div key={i._id} className="glass-panel" style={{ padding: 18, marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--brown3)", textTransform: "uppercase" }}>Internship</div>
-      <h3 style={{ fontSize: 18, color: "var(--brown4)", marginTop: 8, marginBottom: 4 }}>{i.title}</h3>
-      <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>{i.company} · {i.location} {i.field ? `· ${i.field}` : ""}</div>
-      <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
-        {i.apply_url && (
-          <a href={i.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "6px 14px", fontSize: 12, textDecoration: "none", borderRadius: 8 }}>
-            Apply →
-          </a>
-        )}
-        <button 
-          type="button" 
-          onClick={() => toggleSave(i._id, "internship")} 
-          className="btn-ghost" 
-          style={{ padding: "6px 12px", fontSize: 12, color: savedMap[i._id] ? "var(--brown3)" : "var(--muted)", borderRadius: 8 }}
-        >
-          {savedMap[i._id] ? "Saved" : "Save"}
-        </button>
+  const cardInt = (i) => {
+    const wtype = (i.workplace_type || "onsite").toLowerCase();
+    const wtypeColor = wtype === "remote" ? "#16a34a" : wtype === "hybrid" ? "#7c3aed" : "#ea580c";
+    const wtypeLabel = wtype === "remote" ? "🌐 Remote" : wtype === "hybrid" ? "⚡ Hybrid" : "🏢 Onsite";
+    return (
+      <div key={i._id} className="glass-panel" style={{ padding: 20, marginBottom: 16 }}>
+        {/* Header row */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--brown3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Internship</div>
+            <h3 style={{ fontSize: 17, color: "var(--brown4)", margin: 0, marginBottom: 4, lineHeight: 1.3 }}>{i.title}</h3>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>{i.company}{i.location ? ` · ${i.location}` : ""}</div>
+          </div>
+          {/* Workplace type badge */}
+          <span style={{ padding: "4px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${wtypeColor}18`, color: wtypeColor, border: `1px solid ${wtypeColor}40`, whiteSpace: "nowrap" }}>
+            {wtypeLabel}
+          </span>
+        </div>
+
+        {/* Tag badges row */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+          {/* Paid / Unpaid */}
+          <span style={{ padding: "3px 9px", borderRadius: 99, fontSize: 11, fontWeight: 600,
+            background: i.is_paid ? "#dcfce7" : "#fef2f2",
+            color: i.is_paid ? "#15803d" : "#dc2626",
+            border: i.is_paid ? "1px solid #bbf7d0" : "1px solid #fecaca" }}>
+            {i.is_paid ? "💰 Paid" : "Unpaid"}
+          </span>
+          {/* Stipend */}
+          {i.has_stipend && i.stipend && (
+            <span style={{ padding: "3px 9px", borderRadius: 99, fontSize: 11, fontWeight: 600, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>
+              💵 {i.stipend_currency || ""} {i.stipend?.toLocaleString()}/mo
+            </span>
+          )}
+          {/* Duration */}
+          {i.duration_weeks && (
+            <span style={{ padding: "3px 9px", borderRadius: 99, fontSize: 11, fontWeight: 600, background: "#faf5ff", color: "#7e22ce", border: "1px solid #e9d5ff" }}>
+              🗓 {i.duration_weeks} weeks
+            </span>
+          )}
+          {/* Field */}
+          {i.field && (
+            <span style={{ padding: "3px 9px", borderRadius: 99, fontSize: 11, fontWeight: 600, background: "var(--cream2)", color: "var(--brown3)", border: "1px solid var(--border)" }}>
+              {i.field}
+            </span>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
+          {i.apply_url && (
+            <a href={i.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "7px 16px", fontSize: 12, textDecoration: "none", borderRadius: 99 }}>
+              Apply →
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => toggleSave(i._id, "internship")}
+            className="btn-ghost"
+            style={{ padding: "7px 14px", fontSize: 12, color: savedMap[i._id] ? "var(--brown3)" : "var(--muted)", borderRadius: 99 }}
+          >
+            {savedMap[i._id] ? "✓ Saved" : "Save"}
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div style={{ maxWidth: 920, margin: "0 auto" }}>
@@ -2373,49 +2642,167 @@ export function MatchesSection({ token, user }) {
         </div>
       )}
 
-      {/* Animated Dropdown Filter Bar */}
-      <div className="glass-panel animate-fade-in" style={{ padding: "16px 20px", marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--brown4)" }}>
-          🔍 Quick Filter Matches:
+      {/* Tabs Selector for Scholarships & Internships */}
+      {data && !loading && (
+        <div className="sliding-nav-container" style={{ marginBottom: 24, maxWidth: 450 }}>
+          {[
+            ["scholarships", `Scholarships (${filteredScholarships.length})`],
+            ["internships", `Internships (${filteredInternships.length})`]
+          ].map(([t, label]) => (
+            <button 
+              key={t} 
+              onClick={() => {
+                setActiveTab(t);
+                setSelectedFields([]); // Reset sub-filters when switching tabs
+              }}
+              className={`sliding-nav-btn ${activeTab === t ? "active" : ""}`}
+              style={{ flex: 1, fontWeight: "600" }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 280 }}>
-          <MultiSelectDropdown 
-            label="Country" 
-            options={COUNTRIES} 
-            selected={selectedCountries} 
-            onChange={setSelectedCountries} 
-            placeholder="All Countries 🌐" 
+      )}
+
+      {/* ─── Shared Filter Bar (Country + Degree/Field) ─── */}
+      <div className="glass-panel animate-fade-in" style={{ position: "relative", zIndex: 20, padding: "14px 18px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brown4)", minWidth: 90 }}>🔍 Filters:</div>
+        <div style={{ display: "flex", gap: 10, flex: 1, minWidth: 260, flexWrap: "wrap" }}>
+          <MultiSelectDropdown
+            label="Country"
+            options={COUNTRIES}
+            selected={selectedCountries}
+            onChange={v => { setSelectedCountries(v); setSelectedCities([]); }}
+            placeholder="All Countries 🌐"
           />
-          <MultiSelectDropdown 
-            label="Degree" 
-            options={["Bachelors", "Masters / MPhil", "PhD / Doctoral", "Postdoctoral"]} 
-            selected={selectedDegrees} 
-            onChange={setSelectedDegrees} 
-            placeholder="All Degrees 🎓" 
-          />
+          {activeTab === "scholarships" && (
+            <MultiSelectDropdown
+              label="Degree"
+              options={["Bachelors", "Masters / MPhil", "PhD / Doctoral", "Postdoctoral"]}
+              selected={selectedDegrees}
+              onChange={setSelectedDegrees}
+              placeholder="All Degrees 🎓"
+            />
+          )}
+          {activeTab === "internships" && internshipFields.length > 0 && (
+            <MultiSelectDropdown
+              label="Field"
+              options={internshipFields}
+              selected={selectedFields}
+              onChange={setSelectedFields}
+              placeholder="All Fields 💼"
+            />
+          )}
         </div>
       </div>
+
+      {/* ─── Internship-specific Premium Filters ─── */}
+      {activeTab === "internships" && (
+        <div className="glass-panel animate-fade-in" style={{ position: "relative", zIndex: 10, padding: "14px 18px", marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brown4)", minWidth: 90 }}>⚙️ Internship Filters:</div>
+          <div style={{ display: "flex", gap: 10, flex: 1, flexWrap: "wrap", alignItems: "center" }}>
+
+            {/* Workplace Type */}
+            <MultiSelectDropdown
+              label="Workplace"
+              options={["Remote", "Onsite", "Hybrid"]}
+              selected={selectedWorkplaceTypes}
+              onChange={setSelectedWorkplaceTypes}
+              placeholder="Any Workplace 🌐"
+            />
+
+            {/* City (dynamic, depends on selected countries) */}
+            {availableCities.length > 0 && (
+              <MultiSelectDropdown
+                label="City"
+                options={availableCities}
+                selected={selectedCities}
+                onChange={setSelectedCities}
+                placeholder="Any City 🏙"
+              />
+            )}
+
+            {/* Paid Status */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {[["all", "All"], ["paid", "💰 Paid"], ["unpaid", "Unpaid"]].map(([v, lbl]) => (
+                <button key={v} type="button"
+                  onClick={() => setPaidFilter(v)}
+                  style={{
+                    padding: "7px 13px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    border: paidFilter === v ? "none" : "1px solid var(--border)",
+                    background: paidFilter === v ? "var(--brown3)" : "rgba(255,255,255,0.5)",
+                    color: paidFilter === v ? "#fff" : "var(--muted)",
+                    transition: "all 0.2s ease"
+                  }}>{lbl}</button>
+              ))}
+            </div>
+
+            {/* Stipend */}
+            <button type="button"
+              onClick={() => setStipendFilter(stipendFilter === "has_stipend" ? "all" : "has_stipend")}
+              style={{
+                padding: "7px 13px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                border: stipendFilter === "has_stipend" ? "none" : "1px solid var(--border)",
+                background: stipendFilter === "has_stipend" ? "#1d4ed8" : "rgba(255,255,255,0.5)",
+                color: stipendFilter === "has_stipend" ? "#fff" : "var(--muted)",
+                transition: "all 0.2s ease"
+              }}>💵 Has Stipend</button>
+
+            {/* Duration */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {[["all", "Any Duration"], ["under_12", "< 12 wks"], ["12_24", "12–24 wks"], ["over_24", "24+ wks"]].map(([v, lbl]) => (
+                <button key={v} type="button"
+                  onClick={() => setDurationFilter(v)}
+                  style={{
+                    padding: "7px 13px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    border: durationFilter === v ? "none" : "1px solid var(--border)",
+                    background: durationFilter === v ? "#7c3aed" : "rgba(255,255,255,0.5)",
+                    color: durationFilter === v ? "#fff" : "var(--muted)",
+                    transition: "all 0.2s ease"
+                  }}>{lbl}</button>
+              ))}
+            </div>
+
+            {/* Reset all internship-specific filters */}
+            {(selectedWorkplaceTypes.length > 0 || selectedCities.length > 0 || paidFilter !== "all" || stipendFilter !== "all" || durationFilter !== "all" || selectedFields.length > 0) && (
+              <button type="button" onClick={() => {
+                setSelectedWorkplaceTypes([]); setSelectedCities([]); setPaidFilter("all");
+                setStipendFilter("all"); setDurationFilter("all"); setSelectedFields([]);
+              }} style={{ padding: "7px 13px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer", background: "transparent", border: "1px dashed var(--border)", color: "var(--muted)" }}>
+                ✕ Reset
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {loading && <GooeyLoader size="medium" text="Loading personalized picks..." />}
 
       {data && !loading && (
-        <div key={`${selectedCountries.join("-")}-${selectedDegrees.join("-")}`} className="animate-fade-in-up" style={{ display: "grid", gap: 24, gridTemplateColumns: "1fr 1fr" }}>
-          <div>
-            <h3 style={{ fontSize: 20, color: "var(--brown4)", marginBottom: 12 }}>Scholarships</h3>
-            {filteredScholarships.length === 0 ? (
-              <div style={{ color: "var(--muted)" }}>None in database matching filters.</div>
-            ) : (
-              filteredScholarships.slice(0, 12).map(cardSch)
-            )}
-          </div>
-          <div>
-            <h3 style={{ fontSize: 20, color: "var(--brown4)", marginBottom: 12 }}>Internships</h3>
-            {filteredInternships.length === 0 ? (
-              <div style={{ color: "var(--muted)" }}>No internships matching filters.</div>
-            ) : (
-              filteredInternships.slice(0, 12).map(cardInt)
-            )}
-          </div>
+        <div key={`${activeTab}-${selectedCountries.join("-")}-${selectedDegrees.join("-")}-${selectedFields.join("-")}-${selectedWorkplaceTypes.join("-")}-${paidFilter}-${stipendFilter}-${durationFilter}-${selectedCities.join("-")}`} className="animate-fade-in-up">
+          {activeTab === "scholarships" ? (
+            <div>
+              <h3 style={{ fontSize: 20, color: "var(--brown4)", marginBottom: 16 }}>Scholarship Matches</h3>
+              {filteredScholarships.length === 0 ? (
+                <div style={{ color: "var(--muted)", padding: 40, textAlign: "center", background: "var(--white-solid)", borderRadius: 16, border: "1px solid var(--border)" }}>
+                  None in database matching filters.
+                </div>
+              ) : (
+                filteredScholarships.slice(0, 25).map(cardSch)
+              )}
+            </div>
+          ) : (
+            <div>
+              <h3 style={{ fontSize: 20, color: "var(--brown4)", marginBottom: 16 }}>Internship Matches</h3>
+              {filteredInternships.length === 0 ? (
+                <div style={{ color: "var(--muted)", padding: 40, textAlign: "center", background: "var(--white-solid)", borderRadius: 16, border: "1px solid var(--border)" }}>
+                  No internships matching filters.
+                </div>
+              ) : (
+                filteredInternships.slice(0, 25).map(cardInt)
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -3102,14 +3489,14 @@ export function MessagingSection({ user, token, activeRecipientId, onViewUserPro
           )}
           {needSpacer && <div style={{ width: 28, height: 28, flexShrink: 0 }} />}
           
-          <div style={{ display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", maxWidth: "100%" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: mine ? "flex-end" : "flex-start", maxWidth: "70%", position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
               {mine && (
                 <button 
                   type="button" 
                   onClick={() => deleteDM(m._id)} 
                   className="btn-ghost delete-msg-btn" 
-                  style={{ padding: 4, minWidth: 20, minHeight: 20, fontSize: 10, cursor: "pointer", color: "var(--muted)", border: "none", background: "transparent" }}
+                  style={{ position: "absolute", left: "-28px", top: "50%", transform: "translateY(-50%)", padding: 4, minWidth: 20, minHeight: 20, fontSize: 10, cursor: "pointer", color: "var(--muted)", border: "none", background: "transparent" }}
                   title="Delete message"
                 >
                   🗑
@@ -3126,12 +3513,8 @@ export function MessagingSection({ user, token, activeRecipientId, onViewUserPro
               {mine && (
                 <span style={{ display: "inline-flex", alignItems: "center" }}>
                   {m.read ? (
-                    <span title="Seen" style={{ color: "#3a86ff", display: "inline-flex", alignItems: "center", gap: 2, cursor: "default" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                      </svg>
-                      <span style={{ fontSize: "9px", fontWeight: "600" }}>Seen</span>
+                    <span title="Read" style={{ color: "#a67c52", fontSize: "11px", fontWeight: "bold" }}>
+                      ✓✓
                     </span>
                   ) : (
                     <span title="Sent" style={{ color: "var(--muted)", fontSize: "11px", fontWeight: "bold" }}>
@@ -3351,6 +3734,7 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
   const [savedAppsLoading, setSavedAppsLoading] = useState(false);
   const [savedPosts, setSavedPosts] = useState([]);
   const [savedPostsLoading, setSavedPostsLoading] = useState(false);
+  const [savedTypeFilter, setSavedTypeFilter] = useState("all"); // "all" | "scholarship" | "internship" | "job_posting"
 
   const loadSavedApps = async () => {
     if (!isOwnProfile || isTargetRecruiter || isTargetAdmin) return;
@@ -3908,31 +4292,67 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
                         ) : savedApps.length === 0 ? (
                           <div style={{ padding: 20, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>No saved opportunities yet.</div>
                         ) : (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            {savedApps.map(app => {
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            {/* Filter tabs for saved items type */}
+                            {savedApps.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                                  {[["all","All"], ["scholarship","Scholarships 🎓"], ["internship","Internships 💼"], ["job_posting","Jobs 🏢"]].map(([v, lbl]) => (
+                                    <button key={v} type="button" onClick={() => setSavedTypeFilter(v)}
+                                      style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                        border: savedTypeFilter === v ? "none" : "1px solid var(--border)",
+                                        background: savedTypeFilter === v ? "var(--brown3)" : "rgba(255,255,255,0.5)",
+                                        color: savedTypeFilter === v ? "#fff" : "var(--muted)", transition: "all 0.2s" }}>
+                                      {lbl}
+                                    </button>
+                                  ))}
+                                </div>
+                            )}
+                            {savedApps
+                              .filter(app => savedTypeFilter === "all" || app.item_type === savedTypeFilter)
+                              .map(app => {
                               const details = app.item_details;
                               if (!details) return null;
                               const isScholarship = app.item_type === "scholarship";
                               const isJob = app.item_type === "job_posting";
-                              
+                              const isInternship = app.item_type === "internship";
+                              const typeLabel = isScholarship ? "SCHOLARSHIP" : isJob ? "JOB" : "INTERNSHIP";
+                              const typeColor = isScholarship ? { bg: "#faf5ff", color: "#7e22ce" } : isJob ? { bg: "#eff6ff", color: "#1d4ed8" } : { bg: "var(--cream2)", color: "var(--brown3)" };
+
                               return (
                                 <div key={app._id} className="glass-panel" style={{ padding: 16, position: "relative", border: "1px solid var(--border)", background: "rgba(255,255,255,0.4)" }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                                    <div>
-                                      <span className="tag" style={{ fontSize: 9, marginBottom: 6 }}>
-                                        {app.item_type.toUpperCase()}
-                                      </span>
-                                      <h5 style={{ margin: "4px 0", fontSize: 16, color: "var(--brown4)" }}>
-                                        {details.title}
-                                      </h5>
-                                      <p style={{ margin: "2px 0", fontSize: 12, color: "var(--muted)" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: typeColor.bg, color: typeColor.color }}>
+                                          {typeLabel}
+                                        </span>
+                                        {/* Internship badges */}
+                                        {isInternship && details.workplace_type && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: details.workplace_type === "remote" ? "#dcfce7" : "#fef3c7", color: details.workplace_type === "remote" ? "#15803d" : "#92400e" }}>
+                                            {details.workplace_type === "remote" ? "🌐 Remote" : details.workplace_type === "hybrid" ? "⚡ Hybrid" : "🏢 Onsite"}
+                                          </span>
+                                        )}
+                                        {isInternship && details.is_paid && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#dcfce7", color: "#15803d" }}>💰 Paid</span>
+                                        )}
+                                        {/* Job badges */}
+                                        {isJob && details.location_type && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eff6ff", color: "#1d4ed8" }}>
+                                            {details.location_type}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <h5 style={{ margin: "0 0 3px", fontSize: 15, color: "var(--brown4)" }}>{details.title}</h5>
+                                      <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
                                         {isScholarship ? details.university || details.country : (isJob ? details.company_name : details.company)}
+                                        {(isInternship && details.city) ? ` · ${details.city}` : ""}
+                                        {(isInternship && details.duration_weeks) ? ` · ${details.duration_weeks}w` : ""}
                                       </p>
                                     </div>
-                                    <button 
-                                      type="button" 
-                                      className="btn-ghost" 
-                                      style={{ padding: "4px 8px", fontSize: 11, borderRadius: 8, color: "var(--brown3)" }}
+                                    <button
+                                      type="button"
+                                      className="btn-ghost"
+                                      style={{ padding: "4px 8px", fontSize: 11, borderRadius: 8, color: "var(--brown3)", whiteSpace: "nowrap" }}
                                       onClick={async () => {
                                         if (confirm("Unsave this opportunity?")) {
                                           await fetch(`${API_BASE}/applications/${app._id}`, {
@@ -3946,7 +4366,7 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
                                       Unsave
                                     </button>
                                   </div>
-                                  
+
                                   {details.description && (
                                     <p style={{ fontSize: 13, margin: "8px 0 0", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                                       {details.description}
@@ -3958,15 +4378,15 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
                                     </p>
                                   )}
 
-                                  <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+                                  <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
                                     {details.apply_url && (
-                                      <a href={details.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none", borderRadius: 8 }}>
-                                        Apply Link →
+                                      <a href={details.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none", borderRadius: 99 }}>
+                                        Apply →
                                       </a>
                                     )}
                                     {isJob && (
                                       <div style={{ fontSize: 11, color: "var(--muted)", alignSelf: "center" }}>
-                                        Apply via <strong>Jobs & apply</strong> tab
+                                        Apply via <strong>Jobs &amp; apply</strong> tab
                                       </div>
                                     )}
                                   </div>
@@ -3974,6 +4394,7 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
                               );
                             })}
                           </div>
+
                         )}
                       </div>
                     </div>
@@ -5180,7 +5601,7 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
           <span style={{ fontSize: 13, color: "var(--muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user.name}
           </span>
-          <button type="button" className="btn-ghost logout-btn" style={{ padding: "8px 16px", fontSize: 13 }} onClick={() => setShowLogoutConfirm(true)}>
+          <button type="button" className="btn-post-action logout-btn" style={{ padding: "6px 14px", fontSize: 13 }} onClick={() => setShowLogoutConfirm(true)}>
             <span className="logout-icon" style={{ marginRight: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s ease" }}><LogoutIcon /></span> Log out
           </button>
         </div>
@@ -5266,15 +5687,15 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
             </p>
             <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
               <button 
-                className="btn-ghost" 
-                style={{ flex: 1, padding: "12px 18px", borderRadius: "12px", border: "1px solid var(--border)" }}
+                className="btn-post-action" 
+                style={{ flex: 1, padding: "12px 18px" }}
                 onClick={() => setShowLogoutConfirm(false)}
               >
                 Cancel
               </button>
               <button 
                 className="btn-primary" 
-                style={{ flex: 1, padding: "12px 18px", borderRadius: "12px", background: "#8A2E25", borderColor: "#8A2E25", color: "#fff" }}
+                style={{ flex: 1, padding: "12px 18px", borderRadius: "9999px", background: "#8A2E25", borderColor: "#8A2E25", color: "#fff", fontWeight: 700 }}
                 onClick={() => {
                   setShowLogoutConfirm(false);
                   onLogout();
