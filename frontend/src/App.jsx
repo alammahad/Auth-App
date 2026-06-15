@@ -2358,6 +2358,21 @@ export function MatchesSection({ token, user }) {
     }
   };
 
+  const handleApplyClick = async (itemId, itemType) => {
+    if (!token) return;
+    try {
+      // Create or update the application as 'applied'
+      await fetch(`${API_BASE}/applications`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, item_type: itemType, status: "applied", notes: "Applied via external link click" })
+      });
+      loadSaved();
+    } catch (e) {
+      console.error("Failed to record application", e);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const handler = setTimeout(async () => {
@@ -2537,7 +2552,8 @@ export function MatchesSection({ token, user }) {
       <p style={{ fontSize: 14, lineHeight: 1.55 }}>{s.eligibility}</p>
       <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
         {s.apply_url && (
-          <a href={s.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "6px 14px", fontSize: 12, textDecoration: "none", borderRadius: 8 }}>
+          <a href={s.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "6px 14px", fontSize: 12, textDecoration: "none", borderRadius: 8 }}
+             onClick={() => handleApplyClick(s._id, "scholarship")}>
             Apply / details →
           </a>
         )}
@@ -2604,7 +2620,8 @@ export function MatchesSection({ token, user }) {
         {/* Actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
           {i.apply_url && (
-            <a href={i.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "7px 16px", fontSize: 12, textDecoration: "none", borderRadius: 99 }}>
+            <a href={i.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "7px 16px", fontSize: 12, textDecoration: "none", borderRadius: 99 }}
+               onClick={() => handleApplyClick(i._id, "internship")}>
               Apply →
             </a>
           )}
@@ -3735,6 +3752,9 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
   const [savedPosts, setSavedPosts] = useState([]);
   const [savedPostsLoading, setSavedPostsLoading] = useState(false);
   const [savedTypeFilter, setSavedTypeFilter] = useState("all"); // "all" | "scholarship" | "internship" | "job_posting"
+  const [appliedApps, setAppliedApps] = useState([]);
+  const [appliedAppsLoading, setAppliedAppsLoading] = useState(false);
+  const [appliedTypeFilter, setAppliedTypeFilter] = useState("all");
 
   const loadSavedApps = async () => {
     if (!isOwnProfile || isTargetRecruiter || isTargetAdmin) return;
@@ -3749,6 +3769,37 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
       console.error("Failed to load saved applications", err);
     } finally {
       setSavedAppsLoading(false);
+    }
+  };
+
+  const loadAppliedApps = async () => {
+    if (!isOwnProfile || isTargetRecruiter || isTargetAdmin) return;
+    setAppliedAppsLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/applications/me?status_filter=applied`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await resp.json().catch(() => ({}));
+      setAppliedApps(data.items || []);
+    } catch (err) {
+      console.error("Failed to load applied applications", err);
+    } finally {
+      setAppliedAppsLoading(false);
+    }
+  };
+
+  const handleApplyClick = async (itemId, itemType) => {
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/applications`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, item_type: itemType, status: "applied", notes: "Applied via external link click" })
+      });
+      loadSavedApps();
+      loadAppliedApps();
+    } catch (e) {
+      console.error("Failed to record application", e);
     }
   };
 
@@ -3866,6 +3917,7 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
     loadProfile();
     loadSavedApps();
     loadSavedPosts();
+    loadAppliedApps();
   }, [profileUserId, token, user, isOwnProfile]);
 
   const handleFollowToggle = async () => {
@@ -4256,7 +4308,7 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
                 ? [["interests", "Focus"]]
                 : isTargetAdmin
                 ? [["posts", "Activity"]]
-                : [["posts", "My Posts"], ["saved", "Saved"], ["interests", "Interests"]])
+                : [["posts", "My Posts"], ["saved", "Saved"], ["interests", "Interests"], ["applied", "Applied"]])
               : (isTargetRecruiter
                 ? [["interests", "Focus"]]
                 : [["posts", "Posts"], ["interests", "Interests"]]);
@@ -4380,7 +4432,8 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
 
                                   <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
                                     {details.apply_url && (
-                                      <a href={details.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none", borderRadius: 99 }}>
+                                      <a href={details.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none", borderRadius: 99 }}
+                                        onClick={() => handleApplyClick(app.item_id, app.item_type)}>
                                         Apply →
                                       </a>
                                     )}
@@ -4397,6 +4450,137 @@ export function ProfileSection({ user, allPosts, token, onUserRefresh, profileUs
 
                         )}
                       </div>
+                    </div>
+                  )}
+                  {tab === "applied" && (
+                    <div>
+                      <h4 style={{ color: "var(--brown4)", borderBottom: "2px solid var(--cream3)", paddingBottom: 6, marginBottom: 12, fontSize: 15 }}>Applied Opportunities</h4>
+                      {appliedAppsLoading ? (
+                        <div style={{ padding: 20, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>Loading applied opportunities...</div>
+                      ) : appliedApps.length === 0 ? (
+                        <div style={{ padding: 20, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>No applied opportunities yet.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          {/* Filter tabs for applied items type */}
+                          {appliedApps.length > 0 && (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                              {[["all","All"], ["scholarship","Scholarships 🎓"], ["internship","Internships 💼"], ["job_posting","Jobs 🏢"]].map(([v, lbl]) => (
+                                <button key={v} type="button" onClick={() => setAppliedTypeFilter(v)}
+                                  style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                    border: appliedTypeFilter === v ? "none" : "1px solid var(--border)",
+                                    background: appliedTypeFilter === v ? "var(--brown3)" : "rgba(255,255,255,0.5)",
+                                    color: appliedTypeFilter === v ? "#fff" : "var(--muted)", transition: "all 0.2s" }}>
+                                  {lbl}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {appliedApps
+                            .filter(app => appliedTypeFilter === "all" || app.item_type === appliedTypeFilter)
+                            .map(app => {
+                              const details = app.item_details;
+                              if (!details) return null;
+                              const isScholarship = app.item_type === "scholarship";
+                              const isJob = app.item_type === "job_posting";
+                              const isInternship = app.item_type === "internship";
+                              const typeLabel = isScholarship ? "SCHOLARSHIP" : isJob ? "JOB" : "INTERNSHIP";
+                              const typeColor = isScholarship ? { bg: "#faf5ff", color: "#7e22ce" } : isJob ? { bg: "#eff6ff", color: "#1d4ed8" } : { bg: "var(--cream2)", color: "var(--brown3)" };
+
+                              // Applied Date formatting
+                              const appliedDateStr = app.applied_at ? new Date(app.applied_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : "";
+
+                              // Status colors/badges
+                              let statusLabel = "Pending Review";
+                              let statusColor = { bg: "var(--cream2)", color: "var(--muted)" }; // default: pending/needs_review
+
+                              if (app.review_status === "manual_shortlisted") {
+                                statusLabel = "Shortlisted";
+                                statusColor = { bg: "#E6F9F0", color: "#1A7A4A" }; // Green/Teal
+                              } else if (app.review_status === "manual_rejected" || app.status === "rejected") {
+                                statusLabel = "Rejected";
+                                statusColor = { bg: "#FCEBE9", color: "#8A2E25" }; // Red/Pink
+                              }
+
+                              return (
+                                <div key={app._id} className="glass-panel" style={{ padding: 16, position: "relative", border: "1px solid var(--border)", background: "rgba(255,255,255,0.4)" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: typeColor.bg, color: typeColor.color }}>
+                                          {typeLabel}
+                                        </span>
+                                        {/* Workplace/Paid badges */}
+                                        {isInternship && details.workplace_type && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: details.workplace_type === "remote" ? "#dcfce7" : "#fef3c7", color: details.workplace_type === "remote" ? "#15803d" : "#92400e" }}>
+                                            {details.workplace_type === "remote" ? "🌐 Remote" : details.workplace_type === "hybrid" ? "⚡ Hybrid" : "🏢 Onsite"}
+                                          </span>
+                                        )}
+                                        {isInternship && details.is_paid && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#dcfce7", color: "#15803d" }}>💰 Paid</span>
+                                        )}
+                                        {isJob && details.location_type && (
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eff6ff", color: "#1d4ed8" }}>
+                                            {details.location_type}
+                                          </span>
+                                        )}
+                                        {/* Status Badge */}
+                                        <span style={{ fontSize: 10, fontWeight: 750, padding: "2px 8px", borderRadius: 99, background: statusColor.bg, color: statusColor.color, marginLeft: "auto" }}>
+                                          {statusLabel}
+                                        </span>
+                                      </div>
+                                      <h5 style={{ margin: "0 0 3px", fontSize: 15, color: "var(--brown4)" }}>{details.title}</h5>
+                                      <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
+                                        {isScholarship ? details.university || details.country : (isJob ? details.company_name : details.company)}
+                                        {(isInternship && details.city) ? ` · ${details.city}` : ""}
+                                        {(isInternship && details.duration_weeks) ? ` · ${details.duration_weeks}w` : ""}
+                                      </p>
+                                      {appliedDateStr && (
+                                        <p style={{ margin: "4px 0 0 0", fontSize: 11, color: "var(--muted)" }}>
+                                          📅 Applied on {appliedDateStr}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn-ghost"
+                                      style={{ padding: "4px 8px", fontSize: 11, borderRadius: 8, color: "var(--brown3)", whiteSpace: "nowrap" }}
+                                      onClick={async () => {
+                                        if (confirm("Are you sure you want to withdraw this application? This will permanently remove your application record.")) {
+                                          await fetch(`${API_BASE}/applications/${app._id}`, {
+                                            method: "DELETE",
+                                            headers: { Authorization: `Bearer ${token}` }
+                                          });
+                                          loadAppliedApps();
+                                        }
+                                      }}
+                                    >
+                                      Withdraw
+                                    </button>
+                                  </div>
+
+                                  {details.description && (
+                                    <p style={{ fontSize: 13, margin: "8px 0 0", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                      {details.description}
+                                    </p>
+                                  )}
+                                  {details.eligibility && (
+                                    <p style={{ fontSize: 13, margin: "8px 0 0", color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                      {details.eligibility}
+                                    </p>
+                                  )}
+
+                                  {details.apply_url && (
+                                    <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
+                                      <a href={details.apply_url} target="_blank" rel="noreferrer" className="btn-primary" style={{ padding: "4px 10px", fontSize: 11, textDecoration: "none", borderRadius: 99 }}>
+                                        View details / Apply again →
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
                   )}
                   {tab === "interests" && (
@@ -5065,8 +5249,13 @@ export function SettingsDropdown({ theme, setTheme, onDeleteAccount, user, token
       return;
     }
 
-    if (newPassword.length < 8) {
-      setPasswordError("Password must be at least 8 characters");
+    const hasUpper = /[A-Z]/.test(newPassword);
+    const hasLower = /[a-z]/.test(newPassword);
+    const hasDigit = /\d/.test(newPassword);
+    const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+
+    if (newPassword.length < 8 || !hasUpper || !hasLower || !hasDigit || !hasSpecial) {
+      setPasswordError("Password must be at least 8 characters and include uppercase, lowercase, number, and special character");
       return;
     }
 

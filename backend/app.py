@@ -724,7 +724,7 @@ def _whitelist(doc: dict, allowed: set) -> dict:
 # SCRAPE JOB
 # ═══════════════════════════════════════════════════════
 
-def run_scrape(urls: List[str] | None = None, reset: bool = True) -> Dict:
+def run_scrape(urls: List[str] | None = None, reset: bool = False) -> Dict:
     target_urls = urls or URLS_TO_SCRAPE
     if reset:
         vector_store.clear()
@@ -2781,6 +2781,20 @@ def change_password(
     if current_user["sub"] != user_id:
         raise HTTPException(403, "Cannot change another user's password")
 
+    if user_id == SUPER_ADMIN_ID:
+        global ADMIN_PASSWORD
+        if data.old_password != ADMIN_PASSWORD:
+            raise HTTPException(400, "Incorrect current password")
+
+        if not _is_strong_password(data.new_password):
+            raise HTTPException(
+                400,
+                "New password must be at least 8 characters and include uppercase, lowercase, number, and special character"
+            )
+
+        ADMIN_PASSWORD = data.new_password
+        return {"status": "password_changed"}
+
     user = users_col.find_one({"_id": _safe_user_id(user_id)})
     if not user:
         raise HTTPException(404, "User not found")
@@ -3588,6 +3602,13 @@ def list_my_applications(
         try:
             if i_type == "scholarship":
                 details = r_scholarships_col.find_one({"_id": ObjectId(item_id)})
+                if not details and r_news_col is not None:
+                    details = r_news_col.find_one({"_id": ObjectId(item_id)})
+                    if details:
+                        details["university"] = details.get("source_name") or "News Alert"
+                        details["country"] = "Global"
+                        details["eligibility"] = details.get("snippet") or details.get("description") or ""
+                        details["apply_url"] = details.get("url") or details.get("link") or ""
             elif i_type == "internship":
                 details = r_internships_col.find_one({"_id": ObjectId(item_id)})
             elif i_type == "job_posting":
