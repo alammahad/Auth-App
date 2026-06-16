@@ -3529,6 +3529,8 @@ def create_application(data: ApplicationRequest, current_user: dict = Depends(ge
     exists = None
     if data.item_type == "scholarship":
         exists = r_scholarships_col.find_one({"_id": item_oid})
+        if not exists and r_news_col is not None:
+            exists = r_news_col.find_one({"_id": item_oid})
     elif data.item_type == "internship":
         exists = r_internships_col.find_one({"_id": item_oid})
     else:

@@ -5684,17 +5684,63 @@ export function SettingsDropdown({ theme, setTheme, onDeleteAccount, user, token
 // ==========================================
 
 export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setTheme }) {
-  const [tab, setTab] = useState("news");
+  const role = user?.userType || "student";
+
+  const [tab, setTab] = useState(() => {
+    const path = window.location.pathname.replace(/^\//, "");
+    const studentTabs = ["news", "jobs", "matches", "chat", "guides", "messages", "profile"];
+    const recruiterTabs = ["overview", "community", "postings", "applicants", "messages", "profile"];
+    const adminTabs = ["admin", "analytics", "profile"];
+    const validTabs = role === "recruiter" ? recruiterTabs : role === "super_admin" ? adminTabs : studentTabs;
+    if (path && validTabs.includes(path)) {
+      return path;
+    }
+    return role === "recruiter" ? "overview" : role === "super_admin" ? "admin" : "news";
+  });
+
   const [allPosts, setAllPosts] = useState([]);
   const [profileUserId, setProfileUserId] = useState(null);
   const [activeRecipientId, setActiveRecipientId] = useState(null);
 
-  const role = user?.userType || "student";
+  // Sync state to URL pathname
+  useEffect(() => {
+    const currentPath = window.location.pathname.replace(/^\//, "");
+    if (currentPath !== tab) {
+      window.history.pushState(null, "", `/${tab}`);
+    }
+  }, [tab]);
+
+  // Handle back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.replace(/^\//, "");
+      const studentTabs = ["news", "jobs", "matches", "chat", "guides", "messages", "profile"];
+      const recruiterTabs = ["overview", "community", "postings", "applicants", "messages", "profile"];
+      const adminTabs = ["admin", "analytics", "profile"];
+      const validTabs = role === "recruiter" ? recruiterTabs : role === "super_admin" ? adminTabs : studentTabs;
+
+      if (path && validTabs.includes(path)) {
+        setTab(path);
+      } else {
+        setTab(role === "recruiter" ? "overview" : role === "super_admin" ? "admin" : "news");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [role]);
 
   useEffect(() => {
-    if (role === "recruiter") setTab("overview");
-    else if (role === "super_admin") setTab("admin");
-    else setTab("news");
+    const path = window.location.pathname.replace(/^\//, "");
+    const studentTabs = ["news", "jobs", "matches", "chat", "guides", "messages", "profile"];
+    const recruiterTabs = ["overview", "community", "postings", "applicants", "messages", "profile"];
+    const adminTabs = ["admin", "analytics", "profile"];
+    const validTabs = role === "recruiter" ? recruiterTabs : role === "super_admin" ? adminTabs : studentTabs;
+
+    if (!path || !validTabs.includes(path)) {
+      if (role === "recruiter") setTab("overview");
+      else if (role === "super_admin") setTab("admin");
+      else setTab("news");
+    }
   }, [role]);
 
   const onViewUserProfile = (userId) => {
@@ -5931,6 +5977,7 @@ export default function App() {
     setToken("");
     setUser(null);
     setAuthView("landing");
+    window.history.pushState(null, "", "/");
   };
 
   const refreshUser = async () => {
