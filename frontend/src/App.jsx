@@ -425,7 +425,7 @@ export function LandingPage({ onChoose }) {
         zIndex: 1000
       }}>
         <div style={{ fontSize: 24, fontWeight: 800, color: "var(--brown4)", fontFamily: "var(--font-display)", letterSpacing: "1px" }}>
-          SCHLR
+          Scholar Circle
         </div>
         <div style={{ display: "flex", gap: 12 }}>
           <button className="btn-ghost" style={{ padding: "8px 20px" }} onClick={() => onChoose("login")}>Sign In</button>
@@ -601,7 +601,7 @@ export function LandingPage({ onChoose }) {
         <div>
           <div style={{ textAlign: "center", marginBottom: 48 }}>
             <h2 style={{ fontSize: 32, fontWeight: 800, color: "var(--text-h)", fontFamily: "var(--font-display)" }}>
-              What is SCHLR Capable of?
+              What is Scholar Circle Capable of?
             </h2>
             <p style={{ color: "var(--muted)", fontSize: 16, maxWidth: 600, margin: "8px auto 0" }}>
               Explore the core capabilities that help you succeed in your academic and professional path.
@@ -695,7 +695,7 @@ export function LandingPage({ onChoose }) {
         color: "var(--muted)",
         zIndex: 10
       }}>
-        © 2026 SCHLR Scholarship Community.
+        © 2026 Scholar Circle Scholarship Community.
         <a 
           href="https://www.instagram.com/schlr_ai" 
           target="_blank" 
@@ -905,7 +905,7 @@ export function AuthPage({ onLogin, onAuthToken, initialMode = "login", onBack }
         <div className="auth-title-section">
           {/* Animated Key Icon */}
           <div style={{ display: "inline-block", marginBottom: 8 }}><KeyIcon /></div>
-          <h2 className="text-brand">SCHLR</h2>
+          <h2 className="text-brand">Scholar Circle</h2>
           <div className="text-subtitle" style={{ fontSize: 10, marginTop: 2 }}>SCHOLARSHIP COMMUNITY</div>
         </div>
 
@@ -1668,7 +1668,7 @@ export function NewsSection({ user, token, onPostsUpdated, feedVariant = "studen
               
               {post.jobPostingId && (
                 <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "var(--cream2)", border: "1px solid var(--border)", fontSize: 13, color: "var(--brown3)" }}>
-                  🔗 Linked recruiter opening — apply with your SCHLR CV below.
+                  🔗 Linked recruiter opening — apply with your Scholar Circle CV below.
                 </div>
               )}
               {post.imageUrl && (
@@ -2836,7 +2836,7 @@ export function ChatSection({ user, token }) {
     general: [
       {
         role: "assistant",
-        text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your SCHLR AI advisor. What would you like to escape to today in your academic journey? Choose a quick suggestion or type below.`
+        text: `Hello ${user.name?.split(" ")[0] || "there"}! I'm your Scholar Circle AI advisor. What would you like to explore today in your academic journey? Choose a quick suggestion or type below.`
       }
     ]
   });
@@ -5190,7 +5190,7 @@ export function AdminDashboard({ token }) {
 // 14. SETTINGS DROPDOWN COMPONENT
 // ==========================================
 
-export function SettingsDropdown({ theme, setTheme, onDeleteAccount, user, token }) {
+export function SettingsDropdown({ onDeleteAccount, user, token }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -5333,48 +5333,6 @@ export function SettingsDropdown({ theme, setTheme, onDeleteAccount, user, token
             gap: 12
           }}
         >
-          {/* Theme selection block */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--brown3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              App Theme
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {[
-                { id: "light", icon: <SunIcon />, label: "Light Mode" },
-                { id: "dark", icon: <MoonIcon />, label: "Dark Mode" },
-                { id: "brown-cream", icon: <CoffeeIcon />, label: "Brown & Cream" },
-                { id: "neon-black", icon: <LightningIcon />, label: "Purple" }
-              ].map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTheme(t.id)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid",
-                    borderColor: theme === t.id ? "var(--brown3)" : "var(--border)",
-                    background: theme === t.id ? "var(--accent-bg)" : "transparent",
-                    color: theme === t.id ? "var(--brown3)" : "var(--text)",
-                    fontWeight: theme === t.id ? "600" : "400",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    textAlign: "left"
-                  }}
-                >
-                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {t.icon}
-                    {t.label}
-                  </span>
-                  {theme === t.id && <span>✓</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
 
           {/* Account Details block */}
@@ -5683,7 +5641,7 @@ export function SettingsDropdown({ theme, setTheme, onDeleteAccount, user, token
 // 15. MAIN DASHBOARD APPLICATION SHELL
 // ==========================================
 
-export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setTheme }) {
+export function Dashboard({ user, token, onLogout, onUserRefresh }) {
   const role = user?.userType || "student";
 
   const [tab, setTab] = useState(() => {
@@ -5731,7 +5689,7 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
 
   useEffect(() => {
     const path = window.location.pathname.replace(/^\//, "");
-    const studentTabs = ["news", "jobs", "matches", "chat", "guides", "messages", "profile"];
+    const studentTabs = ["news", "jobs", "matches", "messages", "profile"];
     const recruiterTabs = ["overview", "community", "postings", "applicants", "messages", "profile"];
     const adminTabs = ["admin", "analytics", "profile"];
     const validTabs = role === "recruiter" ? recruiterTabs : role === "super_admin" ? adminTabs : studentTabs;
@@ -5755,7 +5713,7 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
 
   const studentNav = useMemo(() => [
     ["news", <FeedIcon />, "Feed"], ["jobs", <JobsIcon />, "Jobs & apply"], ["matches", <MatchesIcon />, "Matches"],
-    ["chat", <ChatIcon />, "AI chat"], ["guides", <GuidesIcon />, "Guides"], ["messages", <MessagesIcon />, "Messages"], ["profile", <ProfileIcon />, "Profile"]
+    ["messages", <MessagesIcon />, "Messages"], ["profile", <ProfileIcon />, "Profile"]
   ], []);
 
   const recruiterNav = useMemo(() => [
@@ -5807,7 +5765,7 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header className="app-top">
-        <div className="app-brand">SCHLR</div>
+        <div className="app-brand">Scholar Circle</div>
         
         <div ref={navRef} className="sliding-nav-container" aria-label="Main">
           <div className="sliding-nav-pill" style={{ "--pill-left": `${pillStyle.left}px`, "--pill-width": `${pillStyle.width}px` }} />
@@ -5825,18 +5783,16 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <SettingsDropdown 
-            theme={theme} 
-            setTheme={setTheme} 
-            onDeleteAccount={handleDeleteAccount} 
-            user={user} 
+          <SettingsDropdown
+            onDeleteAccount={handleDeleteAccount}
+            user={user}
             token={token}
           />
           
           <span style={{ fontSize: 13, color: "var(--muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user.name}
           </span>
-          <button type="button" className="btn-post-action logout-btn" style={{ padding: "6px 14px", fontSize: 13 }} onClick={() => setShowLogoutConfirm(true)}>
+          <button type="button" className="btn-post-action logout-btn" style={{ padding: "6px 14px", fontSize: 13, color: "#dfeaf7", fontWeight: 700 }} onClick={() => setShowLogoutConfirm(true)}>
             <span className="logout-icon" style={{ marginRight: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "transform 0.2s ease" }}><LogoutIcon /></span> Log out
           </button>
         </div>
@@ -5848,8 +5804,6 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
             {tab === "news" && <NewsSection user={user} token={token} onPostsUpdated={setAllPosts} onViewUserProfile={onViewUserProfile} />}
             {tab === "jobs" && <StudentJobsSection user={user} token={token} />}
             {tab === "matches" && <MatchesSection token={token} user={user} />}
-            {tab === "chat" && <ChatSection user={user} token={token} />}
-            {tab === "guides" && <GuidesSection />}
             {tab === "messages" && <MessagingSection user={user} token={token} activeRecipientId={activeRecipientId} onViewUserProfile={onViewUserProfile} />}
             {tab === "profile" && <ProfileSection user={user} allPosts={allPosts} token={token} onUserRefresh={onUserRefresh} profileUserId={profileUserId} onStartDM={onStartDM} />}
           </>
@@ -5918,12 +5872,12 @@ export function Dashboard({ user, token, onLogout, onUserRefresh, theme, setThem
               Confirm Log Out
             </h3>
             <p style={{ fontSize: "14px", color: "var(--muted)", margin: 0, lineHeight: 1.5 }}>
-              Are you sure you want to log out of your SCHLR account? You will need to sign back in to access your recommendations and feed.
+              Are you sure you want to log out of your Scholar Circle account? You will need to sign back in to access your recommendations and feed.
             </p>
             <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
               <button 
                 className="btn-post-action" 
-                style={{ flex: 1, padding: "12px 18px" }}
+                style={{ flex: 1, padding: "12px 18px", color: "#1c2d2c", fontWeight: 700 }}
                 onClick={() => setShowLogoutConfirm(false)}
               >
                 Cancel
@@ -5957,15 +5911,10 @@ export default function App() {
   const [authView, setAuthView] = useState("landing");
   const [authMode, setAuthMode] = useState("login");
   
-  // Theme management: defaults to system preferences, supports manual toggle override
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem("schlr_theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  });
-
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("schlr_theme", theme);
-  }, [theme]);
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.removeItem("schlr_theme");
+  }, []);
 
   const handleToken = (value) => {
     setToken(value);
@@ -6022,7 +5971,7 @@ export default function App() {
   if (bootLoading) {
     return (
       <div className="splash-container">
-        <h1 className="splash-logo">SCHLR</h1>
+        <h1 className="splash-logo">Scholar Circle</h1>
         <div className="splash-subtitle">Scholarship Community</div>
         <GooeyLoader size="large" />
       </div>
@@ -6043,8 +5992,6 @@ export default function App() {
       token={token}
       onLogout={handleLogout}
       onUserRefresh={refreshUser}
-      theme={theme}
-      setTheme={setTheme}
     />
   );
 }
